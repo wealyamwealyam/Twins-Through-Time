@@ -1,4 +1,5 @@
 
+<<<<<<< HEAD
 import { Link } from "react-router-dom";
 
 export function Home() {
@@ -244,3 +245,13 @@ function QuickCard({ title, desc, to }) {
     </Link>
   );
 }
+=======
+export function Home() {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold">Home</h1>
+        <p>Welcome to the dashboard.</p>
+      </div>
+    );
+  }
+>>>>>>> c44c09ea6424ea078d1e0d52c7bffb8f994d45d6
