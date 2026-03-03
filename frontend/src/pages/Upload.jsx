@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import PropTypes from "prop-types";
 
 const STORAGE_KEY = "ttt_scrape_runs";
 
@@ -28,6 +29,10 @@ function StatusBadge({ status }) {
     </span>
   );
 }
+
+StatusBadge.propTypes = {
+  status: PropTypes.oneOf(["pending", "processing", "complete", "failed"]).isRequired,
+};
 
 export default function Upload() {
   const [url, setUrl] = useState("");
