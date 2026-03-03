@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import userRoutes from './routes/userRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -10,7 +11,13 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:5173', // Vite dev server
+  origin: [
+    'http://localhost:5173',  // Vite dev server
+    'http://localhost:8080',  // Alternative local server
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:8080',
+    'null'                     // Allow file:// protocol (for direct HTML file opening) - Need to remove before produciton
+  ],
   credentials: true
 }));
 app.use(express.json());
@@ -24,6 +31,9 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// User routes with validation
+app.use('/api/users', userRoutes);
 
 // Example API routes
 app.get('/api/photos', (req, res) => {
