@@ -1,0 +1,826 @@
+{
+  "generated_at_utc": "2026-03-20T20:22:20.671036+00:00",
+  "source_search_url": "https://collections.carli.illinois.edu/digital/collection/alp_bib/search",
+  "collection_alias": "alp_bib",
+  "count": 5,
+  "results": [
+    {
+      "record_id": "661",
+      "item_url": "https://collections.carli.illinois.edu/digital/collection/alp_bib/id/661",
+      "title": "A. B. Tarman",
+      "image_url": "https://collections.carli.illinois.edu/digital/api/singleitem/collection/alp_bib/id/661/thumbnail",
+      "description": "Photograph of Union soldier, A. B. Tarman, who served in the 33rd Illinois Infantry Regiment, Company K. He resided in Gridley, McLean County, Illinois at time of enlistment. He is pictured here in his army uniform.",
+      "raw_text_excerpt": "Front: A. B. Tarman Co K The 33 Ills vols; Back: Truly yours [?] A. B. Tarman Kappa Woodford Co. Ills. Co. K The 33",
+      "api_item": {
+        "contentType": "application/octet-stream",
+        "filename": "662.cpd",
+        "fields": [
+          {
+            "key": "title",
+            "label": "Title",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "A. B. Tarman",
+            "controlledVocabList": null
+          },
+          {
+            "key": "subjec",
+            "label": "Subjects (LCSH)",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Tarman, A. B.; Tarman, Amos B.; United States. Army. Illinois Infantry Regiment, 33rd (1861-1865). Company K; United States--History--Civil War, 1861-1865; Illinois--History--Civil War, 1861-1865; Soldiers--Illinois; Military uniforms; Photographs",
+            "controlledVocabList": null
+          },
+          {
+            "key": "descri",
+            "label": "Description",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Photograph of Union soldier, A. B. Tarman, who served in the 33rd Illinois Infantry Regiment, Company K. He resided in Gridley, McLean County, Illinois at time of enlistment. He is pictured here in his army uniform.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "format",
+            "label": "Format",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "1 carte de visite",
+            "controlledVocabList": null
+          },
+          {
+            "key": "type",
+            "label": "Type",
+            "controlledVocab": true,
+            "searchable": true,
+            "value": "Image",
+            "controlledVocabList": null
+          },
+          {
+            "key": "langub",
+            "label": "Language",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "English",
+            "controlledVocabList": null
+          },
+          {
+            "key": "publis",
+            "label": "Publisher",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Abraham Lincoln Presidential Library & Museum",
+            "controlledVocabList": null
+          },
+          {
+            "key": "source",
+            "label": "Source",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Boys in Blue Logan Collection",
+            "controlledVocabList": null
+          },
+          {
+            "key": "datea",
+            "label": "Date Digital",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "2012",
+            "controlledVocabList": null
+          },
+          {
+            "key": "archiv",
+            "label": "Archival File Resolution",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Each image was scanned at 600dpi in 24-bit color, target size original, unsharp mask checked. Metadata attached digitally and 1) saved as an uncompressed tiff in full color 2) resized to 150dpi 3) saved as a jpg quality level 10.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "digiti",
+            "label": "Digitization Specifications",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Used Photoshop Elements 10 (professional mode) on a 64-bit Lenovo Think Centre computer running Windows 7 professional. The scanner was an Epson Expression XL with a 12\" by 18\" bed.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "digita",
+            "label": "Digital Format",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "JPG",
+            "controlledVocabList": null
+          },
+          {
+            "key": "rights",
+            "label": "Rights",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "This work has been identified as being free of known restrictions under copyright law, including all related and neighboring rights. Please cite Abraham Lincoln Presidential Library & Museum.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "collea",
+            "label": "Collection",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Boys in Blue (Abraham Lincoln Presidential Library and Museum)",
+            "controlledVocabList": null
+          }
+        ],
+        "text": "Front: A. B. Tarman Co K The 33 Ills vols; Back: Truly yours [?] A. B. Tarman Kappa Woodford Co. Ills. Co. K The 33",
+        "thumbnailUri": "/api/singleitem/collection/alp_bib/id/661/thumbnail",
+        "downloadUri": "/api/collection/alp_bib/id/661/download",
+        "imageUri": "/api/singleitem/image/alp_bib/661/default.jpg",
+        "url": null,
+        "streamUri": null,
+        "iiifInfoUri": "/iiif/alp_bib/661/info.json",
+        "parentId": "-1",
+        "objectInfo": {
+          "page": [
+            {
+              "pagetitle": "A. B. Tarman, front",
+              "pagefile": "660.jp2",
+              "pageptr": "659"
+            },
+            {
+              "pagetitle": "A. B. Tarman, back",
+              "pagefile": "661.jp2",
+              "pageptr": "660"
+            }
+          ],
+          "type": "Document"
+        },
+        "hasPrintPDF": false,
+        "fullrsEnabled": false
+      },
+      "normalized": null,
+      "local_image_path": "C:\\Users\\aaron\\Downloads\\CS5934\\CivilWar\\Twins-Through-Time\\scraping\\output\\images\\661_thumbnail.jpg",
+      "image_downloaded": true
+    },
+    {
+      "record_id": "2914",
+      "item_url": "https://collections.carli.illinois.edu/digital/collection/alp_bib/id/2914",
+      "title": "A. C. Philps",
+      "image_url": "https://collections.carli.illinois.edu/digital/api/singleitem/collection/alp_bib/id/2914/thumbnail",
+      "description": "Photograph of Union soldier, A. C. Philps, from Greenville, Bond County, Illinois, who served in the 130th Illinois Infantry Regiment, Company F. He is pictured here in his army uniform.",
+      "raw_text_excerpt": "Front: A. C. Philps Co F The 130 Ills vol; Back: A. C. Philps Co F. 130 Ill. Inft vols; Swymmer's Gallery 147 Canal St. New Orleans.",
+      "api_item": {
+        "contentType": "application/octet-stream",
+        "filename": "2915.cpd",
+        "fields": [
+          {
+            "key": "title",
+            "label": "Title",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "A. C. Philps",
+            "controlledVocabList": null
+          },
+          {
+            "key": "creato",
+            "label": "Photographer",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Swymmer",
+            "controlledVocabList": null
+          },
+          {
+            "key": "subjec",
+            "label": "Subjects (LCSH)",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Philps, A. C.; Phelps, Alfred C.; United States. Army. Illinois Infantry Regiment, 130th (1861-1865). Company F; United States--History--Civil War, 1861-1865; Illinois--History--Civil War, 1861-1865; Soldiers--Illinois; Military uniforms; Photographs",
+            "controlledVocabList": null
+          },
+          {
+            "key": "descri",
+            "label": "Description",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Photograph of Union soldier, A. C. Philps, from Greenville, Bond County, Illinois, who served in the 130th Illinois Infantry Regiment, Company F. He is pictured here in his army uniform.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "studio",
+            "label": "Studio",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Swymmer's Gallery",
+            "controlledVocabList": null
+          },
+          {
+            "key": "studia",
+            "label": "Studio Location",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "New Orleans, Louisiana",
+            "controlledVocabList": null
+          },
+          {
+            "key": "format",
+            "label": "Format",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "1 carte de visite",
+            "controlledVocabList": null
+          },
+          {
+            "key": "type",
+            "label": "Type",
+            "controlledVocab": true,
+            "searchable": true,
+            "value": "Image",
+            "controlledVocabList": null
+          },
+          {
+            "key": "langub",
+            "label": "Language",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "English",
+            "controlledVocabList": null
+          },
+          {
+            "key": "publis",
+            "label": "Publisher",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Abraham Lincoln Presidential Library & Museum",
+            "controlledVocabList": null
+          },
+          {
+            "key": "source",
+            "label": "Source",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Boys in Blue Logan Collection",
+            "controlledVocabList": null
+          },
+          {
+            "key": "datea",
+            "label": "Date Digital",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "2013",
+            "controlledVocabList": null
+          },
+          {
+            "key": "archiv",
+            "label": "Archival File Resolution",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Each image was scanned at 600dpi in 24-bit color, target size original, unsharp mask checked. Metadata attached digitally and 1) saved as an uncompressed tiff in full color 2) resized to 150dpi 3) saved as a jpg quality level 10.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "digiti",
+            "label": "Digitization Specifications",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Used Photoshop Elements 10 (professional mode) on a 64-bit Lenovo Think Centre computer running Windows 7 professional. The scanner was an Epson Expression XL with a 12\" by 18\" bed.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "digita",
+            "label": "Digital Format",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "JPG",
+            "controlledVocabList": null
+          },
+          {
+            "key": "rights",
+            "label": "Rights",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "This work has been identified as being free of known restrictions under copyright law, including all related and neighboring rights. Please cite Abraham Lincoln Presidential Library & Museum.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "collea",
+            "label": "Collection",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Boys in Blue (Abraham Lincoln Presidential Library and Museum)",
+            "controlledVocabList": null
+          }
+        ],
+        "text": "Front: A. C. Philps Co F The 130 Ills vol; Back: A. C. Philps Co F. 130 Ill. Inft vols; Swymmer's Gallery 147 Canal St. New Orleans.",
+        "thumbnailUri": "/api/singleitem/collection/alp_bib/id/2914/thumbnail",
+        "downloadUri": "/api/collection/alp_bib/id/2914/download",
+        "imageUri": "/api/singleitem/image/alp_bib/2914/default.jpg",
+        "url": null,
+        "streamUri": null,
+        "iiifInfoUri": "/iiif/alp_bib/2914/info.json",
+        "parentId": "-1",
+        "objectInfo": {
+          "page": [
+            {
+              "pagetitle": "A. C. Philps, front",
+              "pagefile": "2913.jp2",
+              "pageptr": "2912"
+            },
+            {
+              "pagetitle": "A. C. Philps, back",
+              "pagefile": "2914.jp2",
+              "pageptr": "2913"
+            }
+          ],
+          "type": "Document"
+        },
+        "hasPrintPDF": false,
+        "fullrsEnabled": false
+      },
+      "normalized": null,
+      "local_image_path": "C:\\Users\\aaron\\Downloads\\CS5934\\CivilWar\\Twins-Through-Time\\scraping\\output\\images\\2914_thumbnail.jpg",
+      "image_downloaded": true
+    },
+    {
+      "record_id": "1885",
+      "item_url": "https://collections.carli.illinois.edu/digital/collection/alp_bib/id/1885",
+      "title": "A. C. Rosenkrans",
+      "image_url": "https://collections.carli.illinois.edu/digital/api/singleitem/collection/alp_bib/id/1885/thumbnail",
+      "description": "Photograph of Union soldier, A. C. Rosenkrans, from Earl, La Salle County, Illinois, who served in the 4th Illinois Cavalry Regiment, Company I. He is pictured here in his army uniform.",
+      "raw_text_excerpt": "Front: A C Rosenkrans Co I 4 Ills Cavly",
+      "api_item": {
+        "contentType": "application/octet-stream",
+        "filename": "1886.cpd",
+        "fields": [
+          {
+            "key": "title",
+            "label": "Title",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "A. C. Rosenkrans",
+            "controlledVocabList": null
+          },
+          {
+            "key": "subjec",
+            "label": "Subjects (LCSH)",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Rosenkrans, A. C.; Rosenkrans, Alvin C.; United States. Army. Illinois Cavalry Regiment, 4th (1861-1865). Company I; United States--History--Civil War, 1861-1865; Illinois--History--Civil War, 1861-1865; Soldiers--Illinois; Military uniforms; Photographs",
+            "controlledVocabList": null
+          },
+          {
+            "key": "descri",
+            "label": "Description",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Photograph of Union soldier, A. C. Rosenkrans, from Earl, La Salle County, Illinois, who served in the 4th Illinois Cavalry Regiment, Company I. He is pictured here in his army uniform.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "format",
+            "label": "Format",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "1 carte de visite",
+            "controlledVocabList": null
+          },
+          {
+            "key": "type",
+            "label": "Type",
+            "controlledVocab": true,
+            "searchable": true,
+            "value": "Image",
+            "controlledVocabList": null
+          },
+          {
+            "key": "langub",
+            "label": "Language",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "English",
+            "controlledVocabList": null
+          },
+          {
+            "key": "publis",
+            "label": "Publisher",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Abraham Lincoln Presidential Library & Museum",
+            "controlledVocabList": null
+          },
+          {
+            "key": "source",
+            "label": "Source",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Boys in Blue Vertical File Collection",
+            "controlledVocabList": null
+          },
+          {
+            "key": "datea",
+            "label": "Date Digital",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "2013",
+            "controlledVocabList": null
+          },
+          {
+            "key": "archiv",
+            "label": "Archival File Resolution",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Each image was scanned at 600dpi in 24-bit color, target size original, unsharp mask checked. Metadata attached digitally and 1) saved as an uncompressed tiff in full color 2) resized to 150dpi 3) saved as a jpg quality level 10.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "digiti",
+            "label": "Digitization Specifications",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Used Photoshop Elements 10 (professional mode) on a 64-bit Lenovo Think Centre computer running Windows 7 professional. The scanner was an Epson Expression XL with a 12\" by 18\" bed.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "digita",
+            "label": "Digital Format",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "JPG",
+            "controlledVocabList": null
+          },
+          {
+            "key": "rights",
+            "label": "Rights",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "This work has been identified as being free of known restrictions under copyright law, including all related and neighboring rights. Please cite Abraham Lincoln Presidential Library & Museum.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "collea",
+            "label": "Collection",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Boys in Blue (Abraham Lincoln Presidential Library and Museum)",
+            "controlledVocabList": null
+          }
+        ],
+        "text": "Front: A C Rosenkrans Co I 4 Ills Cavly",
+        "thumbnailUri": "/api/singleitem/collection/alp_bib/id/1885/thumbnail",
+        "downloadUri": "/api/collection/alp_bib/id/1885/download",
+        "imageUri": "/api/singleitem/image/alp_bib/1885/default.jpg",
+        "url": null,
+        "streamUri": null,
+        "iiifInfoUri": "/iiif/alp_bib/1885/info.json",
+        "parentId": "-1",
+        "objectInfo": {
+          "page": [
+            {
+              "pagetitle": "A. C. Rosenkrans, front",
+              "pagefile": "1884.jp2",
+              "pageptr": "1883"
+            },
+            {
+              "pagetitle": "A. C. Rosenkrans, back",
+              "pagefile": "1885.jp2",
+              "pageptr": "1884"
+            }
+          ],
+          "type": "Document"
+        },
+        "hasPrintPDF": false,
+        "fullrsEnabled": false
+      },
+      "normalized": null,
+      "local_image_path": "C:\\Users\\aaron\\Downloads\\CS5934\\CivilWar\\Twins-Through-Time\\scraping\\output\\images\\1885_thumbnail.jpg",
+      "image_downloaded": true
+    },
+    {
+      "record_id": "1522",
+      "item_url": "https://collections.carli.illinois.edu/digital/collection/alp_bib/id/1522",
+      "title": "A. Fred Gilbert",
+      "image_url": "https://collections.carli.illinois.edu/digital/api/singleitem/collection/alp_bib/id/1522/thumbnail",
+      "description": "Photograph of Union soldier, A. Fred Gilbert, who served in the 17th Illinois Infantry Regiment, Company A. He is pictured here in his army uniform.",
+      "raw_text_excerpt": "Front: A. Fred. Gilbert \"A\" Co. 17\" Ill. Infty.; Back: Gilbert, A. Fred 17th Ill Inf. Photographed by Thurlow, One door above L. Howell & Co.'s Bank, Main-St., --- Peoria. A good assortment of Plain and Fancy Cases, Gilt, Rosewood and Union Frames, etc., always on hand. Negative preserved, and additional copies of this picture furnished at any time.",
+      "api_item": {
+        "contentType": "application/octet-stream",
+        "filename": "1523.cpd",
+        "fields": [
+          {
+            "key": "title",
+            "label": "Title",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "A. Fred Gilbert",
+            "controlledVocabList": null
+          },
+          {
+            "key": "creato",
+            "label": "Photographer",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Thurlow",
+            "controlledVocabList": null
+          },
+          {
+            "key": "subjec",
+            "label": "Subjects (LCSH)",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Gilbert, A. Fred; Gilbert, Aaron Fred; United States. Army. Illinois Infantry Regiment, 17th (1861-1865). Company A; United States--History--Civil War, 1861-1865; Illinois--History--Civil War, 1861-1865; Soldiers--Illinois; Military uniforms; Photographs",
+            "controlledVocabList": null
+          },
+          {
+            "key": "descri",
+            "label": "Description",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Photograph of Union soldier, A. Fred Gilbert, who served in the 17th Illinois Infantry Regiment, Company A. He is pictured here in his army uniform.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "studio",
+            "label": "Studio",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Thurlow",
+            "controlledVocabList": null
+          },
+          {
+            "key": "studia",
+            "label": "Studio Location",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Peoria, Illinois",
+            "controlledVocabList": null
+          },
+          {
+            "key": "format",
+            "label": "Format",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "1 carte de visite",
+            "controlledVocabList": null
+          },
+          {
+            "key": "type",
+            "label": "Type",
+            "controlledVocab": true,
+            "searchable": true,
+            "value": "Image",
+            "controlledVocabList": null
+          },
+          {
+            "key": "langub",
+            "label": "Language",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "English",
+            "controlledVocabList": null
+          },
+          {
+            "key": "publis",
+            "label": "Publisher",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Abraham Lincoln Presidential Library & Museum",
+            "controlledVocabList": null
+          },
+          {
+            "key": "source",
+            "label": "Source",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Boys in Blue Vertical File Collection",
+            "controlledVocabList": null
+          },
+          {
+            "key": "datea",
+            "label": "Date Digital",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "2013",
+            "controlledVocabList": null
+          },
+          {
+            "key": "archiv",
+            "label": "Archival File Resolution",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Each image was scanned at 600dpi in 24-bit color, target size original, unsharp mask checked. Metadata attached digitally and 1) saved as an uncompressed tiff in full color 2) resized to 150dpi 3) saved as a jpg quality level 10.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "digiti",
+            "label": "Digitization Specifications",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Used Photoshop Elements 10 (professional mode) on a 64-bit Lenovo Think Centre computer running Windows 7 professional. The scanner was an Epson Expression XL with a 12\" by 18\" bed.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "digita",
+            "label": "Digital Format",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "JPG",
+            "controlledVocabList": null
+          },
+          {
+            "key": "rights",
+            "label": "Rights",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "This work has been identified as being free of known restrictions under copyright law, including all related and neighboring rights. Please cite Abraham Lincoln Presidential Library & Museum.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "collea",
+            "label": "Collection",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Boys in Blue (Abraham Lincoln Presidential Library and Museum)",
+            "controlledVocabList": null
+          }
+        ],
+        "text": "Front: A. Fred. Gilbert \"A\" Co. 17\" Ill. Infty.; Back: Gilbert, A. Fred 17th Ill Inf. Photographed by Thurlow, One door above L. Howell & Co.'s Bank, Main-St., --- Peoria. A good assortment of Plain and Fancy Cases, Gilt, Rosewood and Union Frames, etc., always on hand. Negative preserved, and additional copies of this picture furnished at any time.",
+        "thumbnailUri": "/api/singleitem/collection/alp_bib/id/1522/thumbnail",
+        "downloadUri": "/api/collection/alp_bib/id/1522/download",
+        "imageUri": "/api/singleitem/image/alp_bib/1522/default.jpg",
+        "url": null,
+        "streamUri": null,
+        "iiifInfoUri": "/iiif/alp_bib/1522/info.json",
+        "parentId": "-1",
+        "objectInfo": {
+          "page": [
+            {
+              "pagetitle": "A. Fred Gilbert, front",
+              "pagefile": "1521.jp2",
+              "pageptr": "1520"
+            },
+            {
+              "pagetitle": "A. Fred Gilbert, back",
+              "pagefile": "1522.jp2",
+              "pageptr": "1521"
+            }
+          ],
+          "type": "Document"
+        },
+        "hasPrintPDF": false,
+        "fullrsEnabled": false
+      },
+      "normalized": null,
+      "local_image_path": "C:\\Users\\aaron\\Downloads\\CS5934\\CivilWar\\Twins-Through-Time\\scraping\\output\\images\\1522_thumbnail.jpg",
+      "image_downloaded": true
+    },
+    {
+      "record_id": "1345",
+      "item_url": "https://collections.carli.illinois.edu/digital/collection/alp_bib/id/1345",
+      "title": "A. J. Babcock",
+      "image_url": "https://collections.carli.illinois.edu/digital/api/singleitem/collection/alp_bib/id/1345/thumbnail",
+      "description": "Photograph of Union soldier, A. J. Babcock, who served in the 7th Illinois Infantry Regiment. He is pictured here in his army uniform.",
+      "raw_text_excerpt": "Back: A. J. Babcock Col 7th Ill Infty",
+      "api_item": {
+        "contentType": "application/octet-stream",
+        "filename": "1346.cpd",
+        "fields": [
+          {
+            "key": "title",
+            "label": "Title",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "A. J. Babcock",
+            "controlledVocabList": null
+          },
+          {
+            "key": "subjec",
+            "label": "Subjects (LCSH)",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Babcock, A. J.; United States. Army. Illinois Infantry Regiment, 7th (1861-1865); United States--History--Civil War, 1861-1865; Illinois--History--Civil War, 1861-1865; Soldiers--Illinois; Military uniforms; Photographs",
+            "controlledVocabList": null
+          },
+          {
+            "key": "descri",
+            "label": "Description",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Photograph of Union soldier, A. J. Babcock, who served in the 7th Illinois Infantry Regiment. He is pictured here in his army uniform.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "format",
+            "label": "Format",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "1 carte de visite",
+            "controlledVocabList": null
+          },
+          {
+            "key": "type",
+            "label": "Type",
+            "controlledVocab": true,
+            "searchable": true,
+            "value": "Image",
+            "controlledVocabList": null
+          },
+          {
+            "key": "langub",
+            "label": "Language",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "English",
+            "controlledVocabList": null
+          },
+          {
+            "key": "publis",
+            "label": "Publisher",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Abraham Lincoln Presidential Library & Museum",
+            "controlledVocabList": null
+          },
+          {
+            "key": "source",
+            "label": "Source",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Boys in Blue Vertical File Collection",
+            "controlledVocabList": null
+          },
+          {
+            "key": "datea",
+            "label": "Date Digital",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "2013",
+            "controlledVocabList": null
+          },
+          {
+            "key": "archiv",
+            "label": "Archival File Resolution",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Each image was scanned at 600dpi in 24-bit color, target size original, unsharp mask checked. Metadata attached digitally and 1) saved as an uncompressed tiff in full color 2) resized to 150dpi 3) saved as a jpg quality level 10.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "digiti",
+            "label": "Digitization Specifications",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Used Photoshop Elements 10 (professional mode) on a 64-bit Lenovo Think Centre computer running Windows 7 professional. The scanner was an Epson Expression XL with a 12\" by 18\" bed.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "digita",
+            "label": "Digital Format",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "JPG",
+            "controlledVocabList": null
+          },
+          {
+            "key": "rights",
+            "label": "Rights",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "This work has been identified as being free of known restrictions under copyright law, including all related and neighboring rights. Please cite Abraham Lincoln Presidential Library & Museum.",
+            "controlledVocabList": null
+          },
+          {
+            "key": "collea",
+            "label": "Collection",
+            "controlledVocab": false,
+            "searchable": true,
+            "value": "Boys in Blue (Abraham Lincoln Presidential Library and Museum)",
+            "controlledVocabList": null
+          }
+        ],
+        "text": "Back: A. J. Babcock Col 7th Ill Infty",
+        "thumbnailUri": "/api/singleitem/collection/alp_bib/id/1345/thumbnail",
+        "downloadUri": "/api/collection/alp_bib/id/1345/download",
+        "imageUri": "/api/singleitem/image/alp_bib/1345/default.jpg",
+        "url": null,
+        "streamUri": null,
+        "iiifInfoUri": "/iiif/alp_bib/1345/info.json",
+        "parentId": "-1",
+        "objectInfo": {
+          "page": [
+            {
+              "pagetitle": "A. J. Babcock, front",
+              "pagefile": "1344.jp2",
+              "pageptr": "1343"
+            },
+            {
+              "pagetitle": "A. J. Babcock, back",
+              "pagefile": "1345.jp2",
+              "pageptr": "1344"
+            }
+          ],
+          "type": "Document"
+        },
+        "hasPrintPDF": false,
+        "fullrsEnabled": false
+      },
+      "normalized": null,
+      "local_image_path": "C:\\Users\\aaron\\Downloads\\CS5934\\CivilWar\\Twins-Through-Time\\scraping\\output\\images\\1345_thumbnail.jpg",
+      "image_downloaded": true
+    }
+  ]
+}
