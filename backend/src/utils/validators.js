@@ -345,3 +345,61 @@ export const validateUserData = (userData) => {
     sanitizedData
   };
 };
+
+/**
+ * validateScrapeUrl
+ * -----------------
+ * Validates a URL provided for web scraping.
+ * Rejects invalid URLs and private/internal addresses (SSRF protection).
+ *
+ * Returns { isValid, value, errors }
+ */
+export const validateScrapeUrl = (url) => {
+  const errors = [];
+
+  if (!url || typeof url !== 'string' || url.trim() === '') {
+    return { isValid: false, value: null, errors: ['url is required.'] };
+  }
+
+  const trimmed = url.trim();
+
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { isValid: false, value: null, errors: ['url must be a valid URL.'] };
+  }
+
+  // Only allow http and https
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    errors.push('url must use http or https.');
+  }
+
+  // SSRF protection — block private / loopback / link-local ranges
+  const hostname = parsed.hostname.toLowerCase();
+
+  const blocked = [
+    /^localhost$/i,
+    /^127\./,
+    /^10\./,
+    /^172\.(1[6-9]|2\d|3[01])\./,
+    /^192\.168\./,
+    /^::1$/,
+    /^0\.0\.0\.0$/,
+    /^169\.254\./,         // link-local
+    /^fc00:/i,             // IPv6 ULA
+    /^fe80:/i,             // IPv6 link-local
+    /\.internal$/i,
+    /\.local$/i,
+  ];
+
+  if (blocked.some((pattern) => pattern.test(hostname))) {
+    errors.push('url must not point to a private or internal address.');
+  }
+
+  if (errors.length) {
+    return { isValid: false, value: null, errors };
+  }
+
+  return { isValid: true, value: trimmed, errors: [] };
+};
