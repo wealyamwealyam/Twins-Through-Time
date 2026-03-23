@@ -25,6 +25,10 @@ export default function Navbar() {
           <Link to="/profile" className="hover:text-blue-400">
             Profile
           </Link>
+
+          <Link to="/admin" className="hover:text-blue-400">
+            Admin
+          </Link>
         </div>
 
       </div>

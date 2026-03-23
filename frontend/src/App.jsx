@@ -7,6 +7,9 @@ import { Home } from "./pages/Home";
 import Upload from "./pages/Upload";
 import History from "./pages/History";
 import Profile from "./pages/Profile";
+import AdminDashboard from "./pages/AdminDashboard";
+import AdminUsers from "./pages/AdminUsers";
+import AdminReview from "./pages/AdminReview";
 
 function App() {
   return (
@@ -21,6 +24,9 @@ function App() {
             <Route path="/upload" element={<Upload />} />
             <Route path="/history" element={<History />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/users" element={<AdminUsers />} />
+            <Route path="/admin/review" element={<AdminReview />} />
           </Routes>
         </main>
 
