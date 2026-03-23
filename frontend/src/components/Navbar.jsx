@@ -34,13 +34,19 @@ export default function Navbar() {
   return (
     <nav className="w-full bg-slate-700 text-white shadow-md">
       <div className="w-full px-6 py-4 flex items-center justify-between">
+        
         {/* Brand */}
-        <Link to="/" className="text-xl font-semibold hover:text-blue-300 transition">
+        <Link
+          to="/"
+          className="text-xl font-semibold hover:text-blue-300 transition"
+        >
           Twins Through Time
         </Link>
 
-        {/* Nav + auth */}
+        {/* Right side */}
         <div className="flex items-center gap-8">
+          
+          {/* Nav links */}
           <div className="flex items-center space-x-8">
             <Link to="/" className="hover:text-blue-300 transition">
               Home
@@ -57,18 +63,16 @@ export default function Navbar() {
             <Link to="/profile" className="hover:text-blue-300 transition">
               Profile
             </Link>
+
+            <Link to="/admin" className="hover:text-blue-300 transition">
+              Admin
+            </Link>
           </div>
-          <Link to="/profile" className="hover:text-blue-400">
-            Profile
-          </Link>
 
-          <Link to="/admin" className="hover:text-blue-400">
-            Admin
-          </Link>
-        </div>
-
+          {/* Divider */}
           <div className="h-6 w-px bg-slate-500" />
 
+          {/* Auth section */}
           {!auth.isAuthenticated ? (
             <div className="flex items-center gap-3">
               <Link
