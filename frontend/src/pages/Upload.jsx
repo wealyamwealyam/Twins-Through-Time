@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import PropTypes from "prop-types";
+import MetadataReviewPopup from "../components/MetadataPopup";
 
 const STORAGE_KEY = "ttt_scrape_runs";
 
@@ -41,6 +42,13 @@ export default function Upload() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
+
+  const [openReview, setOpenReview] = useState(false);
+  const images = [
+    { id: "1", src: "/Twins-Through-Time/DemoPictures/gren.jpg", fileName: "gren.jpg" },
+    { id: "2", src: "/Twins-Through-Time/DemoPictures/oldguy.jpg", fileName: "oldguy.jpg" },
+    { id: "3", src: "/Twins-Through-Time/DemoPictures/youngkid.jpg", fileName: "youngkid.jpg" },
+  ];
 
   useEffect(() => {
     saveRuns(runs);
@@ -199,6 +207,13 @@ export default function Upload() {
                 </button>
               </div>
             </form>
+            <br/>
+            <button
+                  onClick={() => setOpenReview(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  demo scrape
+              </button>
           </div>
 
           {/* RUNS LIST */}
@@ -353,6 +368,11 @@ export default function Upload() {
           </div>
         </div>
       )}
+      <MetadataReviewPopup
+        images={images}
+        isOpen={openReview}
+        onClose={() => setOpenReview(false)}
+      />
     </div>
   );
 }

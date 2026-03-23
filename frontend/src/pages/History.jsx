@@ -13,7 +13,7 @@ export default function History() {
 
   
       <Record
-        imageSrc="/DemoPictures/Grenville-M.-Dodge.jpg"
+        imageSrc="/Twins-Through-Time/DemoPictures/gren.jpg"
         title="Grenville M. Dodge"
         subtitle="Lieutenant"
         date="1863"
@@ -28,7 +28,7 @@ export default function History() {
       />
       <br/>
       <Record
-        imageSrc="/DemoPictures/oldguy.jpg"
+        imageSrc="/Twins-Through-Time/DemoPictures/oldguy.jpg"
         title="Richard G. Davis"
         subtitle="Sergeant"
         date="1867"
@@ -43,7 +43,7 @@ export default function History() {
       />
       <br/>
       <Record
-        imageSrc="/DemoPictures/youngkid.jpg"
+        imageSrc="/Twins-Through-Time/DemoPictures/youngkid.jpg"
         title="Steve L. Junior"
         subtitle="Colonel"
         date="1870"

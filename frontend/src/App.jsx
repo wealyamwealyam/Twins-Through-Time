@@ -21,7 +21,7 @@ function App() {
 
         <main className="flex-grow p-6 bg-gray-100">
           <Routes>
-            <Route path="/" element={<Home />} />
+            <Route path="*" element={<Home />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/history" element={<History />} />
             <Route path="/profile" element={<Profile />} />
