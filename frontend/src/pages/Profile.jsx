@@ -189,7 +189,7 @@ export default function Profile() {
                   label="Display name"
                   value={profile.displayName}
                   onChange={(v) => updateField("displayName", v)}
-                  placeholder="e.g., Vedanshi Jain"
+                  placeholder="e.g., Jane"
                 />
                 <Field
                   label="Role (label only)"
