@@ -13,7 +13,7 @@ export default function History() {
 
   
       <Record
-        imageSrc="/Twins-Through-Time/DemoPictures/gren.jpg"
+        imageSrc="/Twins-Through-Time/DemoPictures/Grenville-M.-Dodge.jpg"
         title="Grenville M. Dodge"
         subtitle="Lieutenant"
         date="1863"

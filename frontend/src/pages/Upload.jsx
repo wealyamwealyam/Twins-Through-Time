@@ -45,7 +45,7 @@ export default function Upload() {
 
   const [openReview, setOpenReview] = useState(false);
   const images = [
-    { id: "1", src: "/Twins-Through-Time/DemoPictures/gren.jpg", fileName: "gren.jpg" },
+    { id: "1", src: "/Twins-Through-Time/DemoPictures/Grenville-M.-Dodge.jpg", fileName: "Grenville-M.-Dodge.jpg" },
     { id: "2", src: "/Twins-Through-Time/DemoPictures/oldguy.jpg", fileName: "oldguy.jpg" },
     { id: "3", src: "/Twins-Through-Time/DemoPictures/youngkid.jpg", fileName: "youngkid.jpg" },
   ];
