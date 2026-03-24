@@ -1,45 +1,68 @@
 import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 
-export default function Profile() {
-  // Local-only profile (wire to backend later)
-  const STORAGE_KEY = "ttt_profile_v1";
+const AUTH_KEY = "ttt_auth_v1";
+const PROFILE_KEY = "ttt_profile_v1";
+const USERS_KEY = "ttt_users_v1";
 
+export default function Profile() {
   const defaultProfile = {
+    userId: null,
     displayName: "Your Name",
+    email: "",
+    phone: "",
     role: "Reviewer",
     affiliation: "Twins Through Time",
     bio: "I help verify scraped Civil War photos and metadata.",
     preferences: {
-      defaultLanding: "upload", // upload | history
-      notifications: true, // UI-only for now
+      defaultLanding: "upload",
+      notifications: true,
     },
     stats: {
       uploadsSubmitted: 0,
       reviewsCompleted: 0,
       flagsRaised: 0,
-      agreementRate: null, // number 0-100 or null
+      agreementRate: null,
     },
   };
 
   const [profile, setProfile] = useState(defaultProfile);
   const [isEditing, setIsEditing] = useState(false);
 
-  // Load localStorage
   useEffect(() => {
+    let auth = null;
+    let storedProfile = null;
+
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setProfile(JSON.parse(raw));
+      auth = JSON.parse(localStorage.getItem(AUTH_KEY));
     } catch {
-      setProfile(defaultProfile);
+      auth = null;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    try {
+      storedProfile = JSON.parse(localStorage.getItem(PROFILE_KEY));
+    } catch {
+      storedProfile = null;
+    }
+
+    const authUser = auth?.user;
+
+    const mergedProfile = {
+      ...defaultProfile,
+      ...(storedProfile || {}),
+      userId: authUser?.id || storedProfile?.userId || null,
+      displayName: authUser?.fullName || storedProfile?.displayName || defaultProfile.displayName,
+      email: authUser?.email || storedProfile?.email || "",
+      phone: authUser?.phone || storedProfile?.phone || "",
+      role: authUser?.role || storedProfile?.role || defaultProfile.role,
+    };
+
+    setProfile(mergedProfile);
   }, []);
 
-  // Persist localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
     } catch {
       // ignore
     }
@@ -61,28 +84,74 @@ export default function Profile() {
       : "—";
 
   const systemStatus = {
-    account: { label: "Mock", value: "Local-only" },
-    storage: { label: "Mock", value: "Enabled" },
-    lastSync: { label: "Mock", value: "—" },
+    account: { label: "Auth", value: profile.email ? "Signed in" : "Local-only" },
+    storage: { label: "Local", value: "Enabled" },
+    lastSync: { label: "Mock", value: "Instant" },
   };
 
+  function syncUserRecord(updatedProfile) {
+    try {
+      const auth = JSON.parse(localStorage.getItem(AUTH_KEY));
+      if (auth?.user) {
+        const updatedAuth = {
+          ...auth,
+          user: {
+            ...auth.user,
+            fullName: updatedProfile.displayName,
+            email: updatedProfile.email,
+            phone: updatedProfile.phone,
+            role: updatedProfile.role,
+          },
+        };
+        localStorage.setItem(AUTH_KEY, JSON.stringify(updatedAuth));
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
+      const nextUsers = users.map((user) =>
+        user.id === updatedProfile.userId
+          ? {
+              ...user,
+              fullName: updatedProfile.displayName,
+              email: updatedProfile.email,
+              phone: updatedProfile.phone,
+              role: updatedProfile.role,
+            }
+          : user
+      );
+      localStorage.setItem(USERS_KEY, JSON.stringify(nextUsers));
+    } catch {
+      // ignore
+    }
+  }
+
   function updateField(key, value) {
-    setProfile((p) => ({ ...p, [key]: value }));
+    setProfile((prev) => {
+      const updated = { ...prev, [key]: value };
+      syncUserRecord(updated);
+      return updated;
+    });
   }
 
   function updatePref(key, value) {
-    setProfile((p) => ({ ...p, preferences: { ...p.preferences, [key]: value } }));
+    setProfile((prev) => ({
+      ...prev,
+      preferences: { ...prev.preferences, [key]: value },
+    }));
   }
 
   function clearLocal() {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(PROFILE_KEY);
+    localStorage.removeItem(AUTH_KEY);
     setProfile(defaultProfile);
     setIsEditing(false);
   }
 
   return (
     <div className="max-w-6xl mx-auto">
-      {/* HERO */}
       <section className="rounded-2xl bg-white shadow-sm border border-gray-200 p-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div className="max-w-2xl">
@@ -112,11 +181,10 @@ export default function Profile() {
             </div>
 
             <div className="mt-4 text-xs text-gray-500">
-              Login & roles coming soon • Preferences will sync to your account later
+              Local auth active • profile reflects current signed-in test user
             </div>
           </div>
 
-          {/* MINI STATUS */}
           <div className="w-full md:w-[360px] rounded-2xl border border-gray-200 bg-gray-50 p-5">
             <h2 className="text-sm font-semibold text-gray-900">Account status</h2>
 
@@ -139,15 +207,13 @@ export default function Profile() {
             </div>
 
             <div className="mt-4 text-xs text-gray-500">
-              This will connect to authentication + user records once the backend is ready.
+              This is ready to swap to backend auth later.
             </div>
           </div>
         </div>
       </section>
 
-      {/* MAIN GRID */}
       <section className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* DETAILS */}
         <div className="lg:col-span-2 rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
           <div className="flex items-center justify-between gap-4">
             <h2 className="text-lg font-semibold text-gray-900">Profile details</h2>
@@ -177,11 +243,14 @@ export default function Profile() {
                 </span>
               </div>
               <div className="text-xs text-gray-500 mt-1">{profile.affiliation}</div>
+              <div className="text-xs text-gray-500 mt-1">{profile.email}</div>
+              {profile.phone ? (
+                <div className="text-xs text-gray-500 mt-1">{profile.phone}</div>
+              ) : null}
               <div className="text-sm text-gray-600 mt-3">{profile.bio}</div>
             </div>
           </div>
 
-          {/* EDITOR */}
           {isEditing && (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -192,10 +261,22 @@ export default function Profile() {
                   placeholder="e.g., Jane"
                 />
                 <Field
-                  label="Role (label only)"
+                  label="Role"
                   value={profile.role}
                   onChange={(v) => updateField("role", v)}
                   placeholder="e.g., Reviewer"
+                />
+                <Field
+                  label="Email"
+                  value={profile.email}
+                  onChange={(v) => updateField("email", v)}
+                  placeholder="you@example.com"
+                />
+                <Field
+                  label="Phone"
+                  value={profile.phone}
+                  onChange={(v) => updateField("phone", v)}
+                  placeholder="+1 555 123 4567"
                 />
                 <Field
                   label="Affiliation"
@@ -218,7 +299,7 @@ export default function Profile() {
 
               <div className="mt-4 flex items-center justify-between gap-3">
                 <div className="text-xs text-gray-500">
-                  Saved automatically (local storage) as you type.
+                  Saved automatically to local storage.
                 </div>
                 <button
                   type="button"
@@ -231,7 +312,6 @@ export default function Profile() {
             </div>
           )}
 
-          {/* PREFERENCES */}
           <div className="mt-6">
             <h2 className="text-lg font-semibold text-gray-900">Preferences</h2>
 
@@ -250,9 +330,6 @@ export default function Profile() {
                     <option value="history">History</option>
                   </select>
                 </div>
-                <div className="mt-3 text-xs text-gray-500">
-                  Later: we can auto-redirect you after login.
-                </div>
               </div>
 
               <div className="rounded-2xl border border-gray-200 bg-white p-5">
@@ -262,7 +339,7 @@ export default function Profile() {
                       Notifications
                     </div>
                     <div className="mt-1 text-xs text-gray-500">
-                      UI toggle for now (connect to backend later).
+                      UI toggle for now.
                     </div>
                   </div>
 
@@ -291,7 +368,6 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: STATS + QUICK ACTIONS */}
         <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
           <h2 className="text-lg font-semibold text-gray-900">Your stats</h2>
 
@@ -325,22 +401,6 @@ export default function Profile() {
             </div>
           </div>
         </div>
-      </section>
-
-      {/* KEY NOTES */}
-      <section className="mt-8 mb-6 rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
-        <h2 className="text-lg font-semibold text-gray-900">Key notes</h2>
-        <ul className="mt-3 grid gap-2 text-sm text-gray-600 list-disc pl-5">
-          <li>
-            Profile is local-only for now. When login is added, data will sync to your account.
-          </li>
-          <li>
-            Planned: reviewer roles, permissions, export, and audit trail for decisions.
-          </li>
-          <li>
-            Stats will reflect your verification work (flags, approvals, and agreement with final outcomes).
-          </li>
-        </ul>
       </section>
     </div>
   );

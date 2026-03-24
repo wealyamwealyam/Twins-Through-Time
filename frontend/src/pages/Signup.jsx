@@ -1,6 +1,10 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
 
+const AUTH_KEY = "ttt_auth_v1";
+const PROFILE_KEY = "ttt_profile_v1";
+const USERS_KEY = "ttt_users_v1";
+
 export default function Signup() {
   const navigate = useNavigate();
 
@@ -79,23 +83,61 @@ export default function Signup() {
       return;
     }
 
+    const email = form.email.trim().toLowerCase();
+    const fullName = form.fullName.trim();
+    const phone = form.phone.trim();
+
+    let users = [];
+    try {
+      users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
+    } catch {
+      users = [];
+    }
+
+    const existingUser = users.find(
+      (user) => user.email.toLowerCase() === email
+    );
+
+    if (existingUser) {
+      setMessage("An account with this email already exists.");
+      return;
+    }
+
+    const newUser = {
+      id: crypto.randomUUID(),
+      fullName,
+      email,
+      phone,
+      password: form.password, // local testing only
+      role: "Member",
+      createdAt: new Date().toISOString(),
+    };
+
+    users.push(newUser);
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+
     localStorage.setItem(
-      "ttt_auth_v1",
+      AUTH_KEY,
       JSON.stringify({
         isAuthenticated: true,
         user: {
-          fullName: form.fullName.trim(),
-          email: form.email.trim(),
-          phone: form.phone.trim(),
+          id: newUser.id,
+          fullName: newUser.fullName,
+          email: newUser.email,
+          phone: newUser.phone,
+          role: newUser.role,
         },
       })
     );
 
     localStorage.setItem(
-      "ttt_profile_v1",
+      PROFILE_KEY,
       JSON.stringify({
-        displayName: form.fullName.trim(),
-        role: "Member",
+        userId: newUser.id,
+        displayName: newUser.fullName,
+        email: newUser.email,
+        phone: newUser.phone,
+        role: newUser.role,
         affiliation: "Twins Through Time",
         bio: "New account created.",
         preferences: {

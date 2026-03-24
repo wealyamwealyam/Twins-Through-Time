@@ -1,6 +1,10 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 
+const AUTH_KEY = "ttt_auth_v1";
+const PROFILE_KEY = "ttt_profile_v1";
+const USERS_KEY = "ttt_users_v1";
+
 export default function Login() {
   const navigate = useNavigate();
 
@@ -31,18 +35,71 @@ export default function Login() {
       return;
     }
 
-    // Mock login for now
+    let users = [];
+    try {
+      users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
+    } catch {
+      users = [];
+    }
+
+    const email = form.email.trim().toLowerCase();
+
+    const matchedUser = users.find(
+      (user) =>
+        user.email.toLowerCase() === email &&
+        user.password === form.password
+    );
+
+    if (!matchedUser) {
+      setMessage("Invalid email or password.");
+      return;
+    }
+
     localStorage.setItem(
-      "ttt_auth_v1",
+      AUTH_KEY,
       JSON.stringify({
         isAuthenticated: true,
         user: {
-          fullName: "Demo User",
-          email: form.email.trim(),
-          phone: "",
+          id: matchedUser.id,
+          fullName: matchedUser.fullName,
+          email: matchedUser.email,
+          phone: matchedUser.phone || "",
+          role: matchedUser.role || "Member",
         },
       })
     );
+
+    let existingProfile = null;
+    try {
+      existingProfile = JSON.parse(localStorage.getItem(PROFILE_KEY));
+    } catch {
+      existingProfile = null;
+    }
+
+    if (!existingProfile || existingProfile.userId !== matchedUser.id) {
+      localStorage.setItem(
+        PROFILE_KEY,
+        JSON.stringify({
+          userId: matchedUser.id,
+          displayName: matchedUser.fullName,
+          email: matchedUser.email,
+          phone: matchedUser.phone || "",
+          role: matchedUser.role || "Member",
+          affiliation: "Twins Through Time",
+          bio: "Local test account.",
+          preferences: {
+            defaultLanding: "upload",
+            notifications: true,
+          },
+          stats: {
+            uploadsSubmitted: 0,
+            reviewsCompleted: 0,
+            flagsRaised: 0,
+            agreementRate: null,
+          },
+        })
+      );
+    }
 
     navigate("/profile");
   }
@@ -76,7 +133,7 @@ export default function Login() {
             </div>
 
             <div className="mt-4 text-xs text-gray-500">
-              Auth is UI-only for now so testing stays fast.
+              Auth is local-only for now so testing stays fast.
             </div>
           </div>
 
