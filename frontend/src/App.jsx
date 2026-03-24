@@ -13,15 +13,19 @@ import AdminDashboard from "./pages/AdminDashboard";
 import AdminUsers from "./pages/AdminUsers";
 import AdminReview from "./pages/AdminReview";
 
+import AuthError from "./pages/AuthError";
+import ServerError from "./pages/ServerError";
+import NotFound from "./pages/NotFound";
+
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/Twins-Through-Time">
       <div className="min-h-screen flex flex-col">
         <Navbar />
 
         <main className="flex-grow p-6 bg-gray-100">
           <Routes>
-            <Route path="*" element={<Home />} />
+            <Route path="/" element={<Home />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/history" element={<History />} />
             <Route path="/profile" element={<Profile />} />
@@ -30,6 +34,11 @@ function App() {
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/review" element={<AdminReview />} />
+
+            <Route path="/error/auth" element={<AuthError />} />
+            <Route path="/error/server" element={<ServerError />} />
+
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
 
