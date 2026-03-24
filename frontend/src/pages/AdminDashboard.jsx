@@ -60,7 +60,7 @@ export default function AdminDashboard() {
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <QuickAction
               to="/admin/users"
               title="Manage users"
@@ -70,6 +70,11 @@ export default function AdminDashboard() {
               to="/admin/review"
               title="Open review queue"
               desc="Assign reviewers and move requests through approval."
+            />
+            <QuickAction
+              to="/admin/onboarding"
+              title="Run onboarding"
+              desc="Process approved batches and push them into the final onboarding pipeline."
             />
           </div>
         </div>

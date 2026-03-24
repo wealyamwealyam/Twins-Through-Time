@@ -4,6 +4,7 @@ const links = [
   { to: "/admin", label: "Dashboard", end: true },
   { to: "/admin/users", label: "Users" },
   { to: "/admin/review", label: "Review Queue" },
+  { to: "/admin/onboarding", label: "Onboarding" },
 ];
 
 export default function AdminSectionNav() {
