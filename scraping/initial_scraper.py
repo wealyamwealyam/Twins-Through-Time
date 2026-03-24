@@ -12,11 +12,18 @@ import argparse
 import json
 import os
 import re
-from datetime import datetime, timezone
+import shutil
+import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+from llm.llm import extract_metadata  # noqa: E402
 
 SEARCH_URL = "https://collections.carli.illinois.edu/digital/collection/alp_bib/search"
 COLLECTION_ALIAS = "alp_bib"
@@ -30,8 +37,7 @@ USER_AGENT = (
     "Chrome/121.0.0.0 Safari/537.36"
 )
 
-DEFAULT_OUTPUT = Path(__file__).resolve().parent / "output" / "initial_scrape.json"
-DEFAULT_IMAGE_DIR = Path(__file__).resolve().parent / "output" / "images"
+OUTPUT_ROOT = Path(__file__).resolve().parent / "output"
 
 
 def fetch_text(url: str, timeout: int = 25) -> str:
@@ -104,10 +110,9 @@ def build_image_candidates(api_item: dict[str, Any]) -> list[str]:
     return candidates
 
 
-def safe_filename_from_url(url: str, fallback: str) -> str:
-    name = os.path.basename(urlparse(url).path) or fallback
-    cleaned = re.sub(r"[^a-zA-Z0-9._-]", "_", name)
-    return cleaned[:120]
+def safe_name(value: str, fallback: str = "record") -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "_", value).strip("_")
+    return (cleaned[:80] or fallback)
 
 
 def download_image(url: str, destination: Path, timeout: int = 25) -> bool:
@@ -174,26 +179,64 @@ def scrape_item(item_url: str) -> dict[str, Any]:
     field_map = fields_to_map(api_item.get("fields"))
     image_candidates = build_image_candidates(api_item)
 
-    title = field_map.get("title")
-    description = field_map.get("descri") or field_map.get("subjec")
-    raw_text = str(api_item.get("text", "")).strip()
-    if not raw_text:
-        raw_text = "\n".join(f"{k}: {v}" for k, v in field_map.items() if v)
+    title = field_map.get("title") or f"record_{item_id}"
+    description = field_map.get("descri") or field_map.get("subjec") or ""
+    text_transcript = str(api_item.get("text", "")).strip()
+
+    llm_document = (
+        f"Record ID: {item_id}\n"
+        f"Item URL: {item_url}\n"
+        f"Title: {title}\n"
+        f"Description: {description}\n"
+        f"Military/Subject Data: {field_map.get('subjec', '')}\n"
+        f"Transcript: {text_transcript}\n"
+        f"Publisher: {field_map.get('publis', '')}\n"
+    )
 
     return {
         "record_id": item_id,
         "item_url": item_url,
         "title": title,
-        "image_url": image_candidates[0] if image_candidates else None,
         "description": description,
-        "raw_text_excerpt": raw_text[:2000],
         "api_item": api_item,
-        "normalized": None,
         "_image_candidates": image_candidates,
+        "_llm_document": llm_document,
     }
 
 
-def run(limit: int, out_path: Path, download_images: bool) -> None:
+def save_record_folder(record: dict[str, Any], download_images: bool) -> None:
+    record_id = str(record.get("record_id") or "unknown")
+    title = str(record.get("title") or "record")
+    folder_name = f"{record_id}_{safe_name(title, fallback='record')}"
+    record_folder = OUTPUT_ROOT / folder_name
+    record_folder.mkdir(parents=True, exist_ok=True)
+
+    metadata = extract_metadata(str(record.get("_llm_document", "")), maxTokens=400)
+
+    # Add source trace in Other while keeping schema intact.
+    other = metadata.get("Other") if isinstance(metadata.get("Other"), dict) else {}
+    other.setdefault("Record ID", record_id)
+    other.setdefault("Source URL", str(record.get("item_url") or ""))
+    metadata["Other"] = other
+
+    if download_images:
+        image_saved = False
+        image_candidates = list(record.get("_image_candidates", []))
+        for candidate in image_candidates:
+            ext = Path(urlparse(candidate).path).suffix or ".jpg"
+            image_path = record_folder / f"image{ext}"
+            if download_image(candidate, image_path):
+                image_saved = True
+                break
+
+        if not image_saved:
+            print(f"[warn] No valid image downloaded for record {record_id}")
+
+    metadata_path = record_folder / "metadata.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def run(limit: int, download_images: bool) -> None:
     print(f"[info] Discovering item links for collection '{COLLECTION_ALIAS}'")
     item_links = discover_item_links(limit=limit)
     if not item_links:
@@ -202,76 +245,45 @@ def run(limit: int, out_path: Path, download_images: bool) -> None:
     selected_links = item_links[:limit] if limit > 0 else item_links
     print(f"[info] Found {len(item_links)} item links, processing {len(selected_links)}")
 
-    results: list[dict[str, Any]] = []
-    if download_images:
-        DEFAULT_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+
+    # Remove legacy aggregate outputs from earlier versions.
+    legacy_json = OUTPUT_ROOT / "initial_scrape.json"
+    legacy_images = OUTPUT_ROOT / "images"
+    if legacy_json.exists():
+        try:
+            legacy_json.unlink()
+        except Exception:
+            pass
+    if legacy_images.exists():
+        try:
+            shutil.rmtree(legacy_images)
+        except Exception:
+            pass
 
     for idx, link in enumerate(selected_links, start=1):
         print(f"[info] ({idx}/{len(selected_links)}) Scraping {link}")
         try:
             record = scrape_item(link)
+            save_record_folder(record, download_images=download_images)
         except Exception as exc:
-            results.append({"item_url": link, "error": str(exc)})
-            print(f"[warn] Failed to scrape {link}: {exc}")
-            continue
+            print(f"[warn] Failed to process {link}: {exc}")
 
-        if download_images:
-            candidates = list(record.pop("_image_candidates", []))
-            primary_url = record.get("image_url") or ""
-            ext = Path(urlparse(primary_url).path).suffix or ".jpg"
-            file_stem = record.get("record_id") or f"item_{idx}"
-
-            success = False
-            saved_path: str | None = None
-            chosen_image_url: str | None = None
-
-            for candidate_url in candidates:
-                candidate_ext = Path(urlparse(candidate_url).path).suffix or ext
-                base_name = safe_filename_from_url(candidate_url, f"{file_stem}{candidate_ext}")
-                file_name = f"{file_stem}_{base_name}"
-                if not Path(file_name).suffix:
-                    file_name += candidate_ext
-                destination = DEFAULT_IMAGE_DIR / file_name
-
-                if download_image(candidate_url, destination):
-                    success = True
-                    saved_path = str(destination)
-                    chosen_image_url = candidate_url
-                    break
-
-            record["local_image_path"] = saved_path
-            record["image_downloaded"] = success
-            if chosen_image_url:
-                record["image_url"] = chosen_image_url
-        else:
-            record.pop("_image_candidates", None)
-
-        results.append(record)
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "source_search_url": SEARCH_URL,
-        "collection_alias": COLLECTION_ALIAS,
-        "count": len(results),
-        "results": results,
-    }
-    out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"[done] Wrote {len(results)} records to {out_path}")
+    print(f"[done] Wrote per-record folders to {OUTPUT_ROOT}")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Initial ContentDM scraper for Boys in Blue")
     parser.add_argument("--limit", type=int, default=10, help="Max number of items to scrape (0 = all found)")
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT, help="Output JSON file path")
     parser.add_argument("--download-images", action="store_true", help="Download item images")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    run(limit=args.limit, out_path=args.out, download_images=args.download_images)
+    run(limit=args.limit, download_images=args.download_images)
 
 
 if __name__ == "__main__":
     main()
+
