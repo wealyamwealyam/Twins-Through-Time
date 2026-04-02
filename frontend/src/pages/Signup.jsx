@@ -1,9 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
-
-const AUTH_KEY = "ttt_auth_v1";
-const PROFILE_KEY = "ttt_profile_v1";
-const USERS_KEY = "ttt_users_v1";
+import { supabase } from "../supabaseClient";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -21,6 +18,7 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   function validateEmail(email) {
     return /\S+@\S+\.\S+/.test(email);
@@ -44,118 +42,118 @@ export default function Signup() {
   const passwordChecks = useMemo(() => getPasswordChecks(form.password), [form.password]);
   const passwordStrong = Object.values(passwordChecks).every(Boolean);
 
-  function handleSubmit(e) {
-    e.preventDefault();
-    setMessage("");
-
-    if (!form.fullName.trim()) {
-      setMessage("Please enter your full name.");
-      return;
-    }
-
-    if (!validateEmail(form.email)) {
-      setMessage("Please enter a valid email address.");
-      return;
-    }
-
-    if (!validatePhone(form.phone)) {
-      setMessage("Please enter a valid phone number.");
-      return;
-    }
-
-    if (!passwordStrong) {
-      setMessage("Password does not meet the security requirements.");
-      return;
-    }
-
-    if (form.password !== form.confirmPassword) {
-      setMessage("Passwords do not match.");
-      return;
-    }
-
-    if (!form.termsAccepted) {
-      setMessage("You must accept the terms and privacy policy.");
-      return;
-    }
-
-    if (form.phone.trim() && !form.smsConsent) {
-      setMessage("Please confirm SMS consent if you provide a phone number.");
-      return;
-    }
-
-    const email = form.email.trim().toLowerCase();
-    const fullName = form.fullName.trim();
-    const phone = form.phone.trim();
-
-    let users = [];
-    try {
-      users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
-    } catch {
-      users = [];
-    }
-
-    const existingUser = users.find(
-      (user) => user.email.toLowerCase() === email
-    );
-
-    if (existingUser) {
-      setMessage("An account with this email already exists.");
-      return;
-    }
-
-    const newUser = {
-      id: crypto.randomUUID(),
-      fullName,
-      email,
-      phone,
-      password: form.password, // local testing only
-      role: "Member",
-      createdAt: new Date().toISOString(),
-    };
-
-    users.push(newUser);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-
-    localStorage.setItem(
-      AUTH_KEY,
-      JSON.stringify({
-        isAuthenticated: true,
-        user: {
-          id: newUser.id,
-          fullName: newUser.fullName,
-          email: newUser.email,
-          phone: newUser.phone,
-          role: newUser.role,
-        },
-      })
-    );
-
-    localStorage.setItem(
-      PROFILE_KEY,
-      JSON.stringify({
-        userId: newUser.id,
-        displayName: newUser.fullName,
-        email: newUser.email,
-        phone: newUser.phone,
-        role: newUser.role,
+  async function ensureUserRows(user, fullName, email, phone) {
+    const { error: profileError } = await supabase.from("profiles").upsert(
+      {
+        id: user.id,
+        display_name: fullName,
+        email,
+        phone: phone || null,
+        role: "member",
         affiliation: "Twins Through Time",
         bio: "New account created.",
-        preferences: {
-          defaultLanding: "upload",
-          notifications: true,
-        },
-        stats: {
-          uploadsSubmitted: 0,
-          reviewsCompleted: 0,
-          flagsRaised: 0,
-          agreementRate: null,
-        },
-      })
+      },
+      { onConflict: "id" }
     );
 
-    navigate("/profile");
+    if (profileError) throw profileError;
+
+    const { error: preferencesError } = await supabase
+      .from("profile_preferences")
+      .upsert(
+        {
+          user_id: user.id,
+          default_landing: "upload",
+          notifications: true,
+        },
+        { onConflict: "user_id" }
+      );
+
+    if (preferencesError) throw preferencesError;
+
+    const { error: statsError } = await supabase
+      .from("user_stats")
+      .upsert(
+        {
+          user_id: user.id,
+          uploads_submitted: 0,
+          reviews_completed: 0,
+          flags_raised: 0,
+          agreement_rate: null,
+        },
+        { onConflict: "user_id" }
+      );
+
+    if (statsError) throw statsError;
   }
 
+async function handleSubmit(e) {
+  e.preventDefault();
+  setMessage("");
+
+  if (!form.fullName.trim()) {
+    setMessage("Please enter your full name.");
+    return;
+  }
+
+  if (!validateEmail(form.email)) {
+    setMessage("Please enter a valid email address.");
+    return;
+  }
+
+  if (!validatePhone(form.phone)) {
+    setMessage("Please enter a valid phone number.");
+    return;
+  }
+
+  if (!passwordStrong) {
+    setMessage("Password does not meet the security requirements.");
+    return;
+  }
+
+  if (form.password !== form.confirmPassword) {
+    setMessage("Passwords do not match.");
+    return;
+  }
+
+  if (!form.termsAccepted) {
+    setMessage("You must accept the terms and privacy policy.");
+    return;
+  }
+
+  if (form.phone.trim() && !form.smsConsent) {
+    setMessage("Please confirm SMS consent if you provide a phone number.");
+    return;
+  }
+
+  setIsSubmitting(true);
+
+  try {
+    const email = form.email.trim().toLowerCase();
+
+    const { error } = await supabase.auth.signUp({
+      email,
+      password: form.password,
+      options: {
+        data: {
+          full_name: form.fullName.trim(),
+          phone: form.phone.trim() || null,
+        },
+      },
+    });
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    navigate("/login");
+  } catch (error) {
+    setMessage(error?.message || "Something went wrong while creating your account.");
+  } finally {
+    setIsSubmitting(false);
+  }
+}
   return (
     <div className="max-w-6xl mx-auto">
       <section className="rounded-2xl bg-white shadow-sm border border-gray-200 p-8">
@@ -165,37 +163,8 @@ export default function Signup() {
               Create account
             </h1>
             <p className="mt-3 text-gray-600 text-base md:text-lg">
-              Set up your account with email and a secure password. Phone number is optional and should only be used with explicit SMS consent.
+              Set up your account with email and a secure password.
             </p>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link
-                to="/login"
-                className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition"
-              >
-                Already have an account?
-              </Link>
-
-              <Link
-                to="/"
-                className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-gray-900 bg-gray-100 hover:bg-gray-200 transition"
-              >
-                Back to home
-              </Link>
-            </div>
-
-            <div className="mt-4 text-xs text-gray-500">
-              This is a frontend flow for now. Real verification and password security come with backend auth.
-            </div>
-          </div>
-
-          <div className="w-full md:w-[360px] rounded-2xl border border-gray-200 bg-gray-50 p-5">
-            <h2 className="text-sm font-semibold text-gray-900">Included</h2>
-            <div className="mt-4 grid gap-3 text-sm text-gray-600">
-              <div className="rounded-xl border border-gray-200 bg-white p-3">Email required</div>
-              <div className="rounded-xl border border-gray-200 bg-white p-3">Optional phone number</div>
-              <div className="rounded-xl border border-gray-200 bg-white p-3">Strong password checks</div>
-            </div>
           </div>
         </div>
       </section>
@@ -212,27 +181,9 @@ export default function Signup() {
 
           <form onSubmit={handleSubmit} className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field
-                label="Full name"
-                value={form.fullName}
-                onChange={(v) => setForm((f) => ({ ...f, fullName: v }))}
-                placeholder="Jane Doe"
-              />
-
-              <Field
-                label="Email"
-                type="email"
-                value={form.email}
-                onChange={(v) => setForm((f) => ({ ...f, email: v }))}
-                placeholder="you@example.com"
-              />
-
-              <Field
-                label="Phone number (optional)"
-                value={form.phone}
-                onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
-                placeholder="+1 555 123 4567"
-              />
+              <Field label="Full name" value={form.fullName} onChange={(v) => setForm((f) => ({ ...f, fullName: v }))} placeholder="Jane Doe" />
+              <Field label="Email" type="email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} placeholder="you@example.com" />
+              <Field label="Phone number (optional)" value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} placeholder="+1 555 123 4567" />
 
               <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <PasswordField
@@ -252,17 +203,6 @@ export default function Signup() {
                   visible={showConfirmPassword}
                   onToggle={() => setShowConfirmPassword((v) => !v)}
                 />
-              </div>
-            </div>
-
-            <div className="mt-5 rounded-xl border border-gray-200 bg-white p-4">
-              <div className="text-sm font-semibold text-gray-900">Password requirements</div>
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                <PasswordCheck ok={passwordChecks.length} text="At least 8 characters" />
-                <PasswordCheck ok={passwordChecks.uppercase} text="One uppercase letter" />
-                <PasswordCheck ok={passwordChecks.lowercase} text="One lowercase letter" />
-                <PasswordCheck ok={passwordChecks.number} text="One number" />
-                <PasswordCheck ok={passwordChecks.special} text="One special character" />
               </div>
             </div>
 
@@ -293,9 +233,10 @@ export default function Signup() {
             <div className="mt-5">
               <button
                 type="submit"
-                className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition"
+                disabled={isSubmitting}
+                className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition disabled:opacity-60"
               >
-                Create account
+                {isSubmitting ? "Creating account..." : "Create account"}
               </button>
             </div>
           </form>
@@ -303,18 +244,9 @@ export default function Signup() {
 
         <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
           <h2 className="text-lg font-semibold text-gray-900">Quick actions</h2>
-
           <div className="mt-4 grid gap-3">
-            <QuickCard
-              title="Sign in"
-              desc="Already have an account? Go to the login page."
-              to="/login"
-            />
-            <QuickCard
-              title="Back home"
-              desc="Keep testing the app without forcing auth yet."
-              to="/"
-            />
+            <QuickCard title="Sign in" desc="Already have an account? Go to the login page." to="/login" />
+            <QuickCard title="Back home" desc="Keep testing the app without forcing auth yet." to="/" />
           </div>
         </div>
       </section>
@@ -361,14 +293,6 @@ function PasswordField({ label, value, onChange, placeholder, visible, onToggle 
   );
 }
 
-function PasswordCheck({ ok, text }) {
-  return (
-    <div className={`rounded-lg px-3 py-2 border text-sm ${ok ? "border-gray-300 bg-gray-50 text-gray-900" : "border-gray-200 bg-white text-gray-600"}`}>
-      {ok ? "✓" : "•"} {text}
-    </div>
-  );
-}
-
 function QuickCard({ title, desc, to }) {
   return (
     <Link
@@ -380,9 +304,7 @@ function QuickCard({ title, desc, to }) {
           <div className="text-sm font-semibold text-gray-900">{title}</div>
           <div className="mt-1 text-sm text-gray-600">{desc}</div>
         </div>
-        <div className="text-sm font-semibold text-gray-900 group-hover:translate-x-0.5 transition">
-          →
-        </div>
+        <div className="text-sm font-semibold text-gray-900">→</div>
       </div>
     </Link>
   );

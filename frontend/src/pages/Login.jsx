@@ -1,9 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-
-const AUTH_KEY = "ttt_auth_v1";
-const PROFILE_KEY = "ttt_profile_v1";
-const USERS_KEY = "ttt_users_v1";
+import { supabase } from "../supabaseClient";
+import { clearSupabaseAuthStorage } from "../utils/authSession";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -16,12 +14,74 @@ export default function Login() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   function validateEmail(email) {
     return /\S+@\S+\.\S+/.test(email);
   }
 
-  function handleSubmit(e) {
+  function withTimeout(promise, ms = 6000) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Sign-in timed out.")), ms)
+      ),
+    ]);
+  }
+
+  async function ensureUserRows(user) {
+    const fullName =
+      user.user_metadata?.full_name ||
+      user.email?.split("@")[0] ||
+      "User";
+
+    const phone = user.user_metadata?.phone || null;
+
+    const { error: profileError } = await supabase.from("profiles").upsert(
+      {
+        id: user.id,
+        display_name: fullName,
+        email: user.email || "",
+        phone,
+        role: "member",
+        affiliation: "Twins Through Time",
+        bio: "Account active.",
+      },
+      { onConflict: "id" }
+    );
+
+    if (profileError) throw profileError;
+
+    const { error: preferencesError } = await supabase
+      .from("profile_preferences")
+      .upsert(
+        {
+          user_id: user.id,
+          default_landing: "upload",
+          notifications: true,
+        },
+        { onConflict: "user_id" }
+      );
+
+    if (preferencesError) throw preferencesError;
+
+    const { error: statsError } = await supabase
+      .from("user_stats")
+      .upsert(
+        {
+          user_id: user.id,
+          uploads_submitted: 0,
+          reviews_completed: 0,
+          flags_raised: 0,
+          agreement_rate: null,
+        },
+        { onConflict: "user_id" }
+      );
+
+    if (statsError) throw statsError;
+  }
+
+  async function handleSubmit(e) {
     e.preventDefault();
     setMessage("");
 
@@ -35,197 +95,116 @@ export default function Login() {
       return;
     }
 
-    let users = [];
+    setIsSubmitting(true);
+
     try {
-      users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
-    } catch {
-      users = [];
-    }
+      const email = form.email.trim().toLowerCase();
 
-    const email = form.email.trim().toLowerCase();
-
-    const matchedUser = users.find(
-      (user) =>
-        user.email.toLowerCase() === email &&
-        user.password === form.password
-    );
-
-    if (!matchedUser) {
-      setMessage("Invalid email or password.");
-      return;
-    }
-
-    localStorage.setItem(
-      AUTH_KEY,
-      JSON.stringify({
-        isAuthenticated: true,
-        user: {
-          id: matchedUser.id,
-          fullName: matchedUser.fullName,
-          email: matchedUser.email,
-          phone: matchedUser.phone || "",
-          role: matchedUser.role || "Member",
-        },
-      })
-    );
-
-    let existingProfile = null;
-    try {
-      existingProfile = JSON.parse(localStorage.getItem(PROFILE_KEY));
-    } catch {
-      existingProfile = null;
-    }
-
-    if (!existingProfile || existingProfile.userId !== matchedUser.id) {
-      localStorage.setItem(
-        PROFILE_KEY,
-        JSON.stringify({
-          userId: matchedUser.id,
-          displayName: matchedUser.fullName,
-          email: matchedUser.email,
-          phone: matchedUser.phone || "",
-          role: matchedUser.role || "Member",
-          affiliation: "Twins Through Time",
-          bio: "Local test account.",
-          preferences: {
-            defaultLanding: "upload",
-            notifications: true,
-          },
-          stats: {
-            uploadsSubmitted: 0,
-            reviewsCompleted: 0,
-            flagsRaised: 0,
-            agreementRate: null,
-          },
-        })
+      const { data, error } = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email,
+          password: form.password,
+        }),
+        6000
       );
-    }
 
-    navigate("/profile");
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+
+      const user = data?.user || data?.session?.user;
+
+      if (!user) {
+        setMessage("Signed in, but no user session was returned.");
+        return;
+      }
+
+      await ensureUserRows(user);
+      await withTimeout(supabase.auth.getSession(), 3000);
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        setMessage(profileError.message);
+        return;
+      }
+
+      if (profile?.role === "admin") {
+        navigate("/admin");
+        return;
+      }
+
+      navigate("/profile");
+    } catch (error) {
+      clearSupabaseAuthStorage();
+
+      setMessage(
+        error?.message === "Sign-in timed out."
+          ? "Sign-in got stuck locally. We cleared the stale auth state. Please try again."
+          : error?.message || "Something went wrong while signing in."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
     <div className="max-w-6xl mx-auto">
       <section className="rounded-2xl bg-white shadow-sm border border-gray-200 p-8">
-        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-          <div className="max-w-2xl">
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-gray-900">
-              Sign in
-            </h1>
-            <p className="mt-3 text-gray-600 text-base md:text-lg">
-              Access your account to manage profile settings, review history, and saved preferences.
-            </p>
+        <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-gray-900">
+          Sign in
+        </h1>
 
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link
-                to="/signup"
-                className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition"
-              >
-                Create account
-              </Link>
-
-              <Link
-                to="/"
-                className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-gray-900 bg-gray-100 hover:bg-gray-200 transition"
-              >
-                Back to home
-              </Link>
-            </div>
-
-            <div className="mt-4 text-xs text-gray-500">
-              Auth is local-only for now so testing stays fast.
-            </div>
+        {message ? (
+          <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+            {message}
           </div>
+        ) : null}
 
-          <div className="w-full md:w-[360px] rounded-2xl border border-gray-200 bg-gray-50 p-5">
-            <h2 className="text-sm font-semibold text-gray-900">Why sign in?</h2>
-            <div className="mt-4 grid gap-3 text-sm text-gray-600">
-              <div className="rounded-xl border border-gray-200 bg-white p-3">
-                Save your account details
-              </div>
-              <div className="rounded-xl border border-gray-200 bg-white p-3">
-                Access profile and preferences
-              </div>
-              <div className="rounded-xl border border-gray-200 bg-white p-3">
-                Support protected pages later
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900">Account access</h2>
-
-          {message ? (
-            <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-              {message}
-            </div>
-          ) : null}
-
-          <form onSubmit={handleSubmit} className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-5">
-            <div className="grid grid-cols-1 gap-4">
-              <Field
-                label="Email"
-                type="email"
-                value={form.email}
-                onChange={(v) => setForm((f) => ({ ...f, email: v }))}
-                placeholder="you@example.com"
-              />
-
-              <PasswordField
-                label="Password"
-                value={form.password}
-                onChange={(v) => setForm((f) => ({ ...f, password: v }))}
-                placeholder="Enter your password"
-                visible={showPassword}
-                onToggle={() => setShowPassword((v) => !v)}
-              />
-
-              <div className="flex items-center justify-between gap-4">
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={form.remember}
-                    onChange={(e) => setForm((f) => ({ ...f, remember: e.target.checked }))}
-                  />
-                  Remember me
-                </label>
-
-                <button
-                  type="button"
-                  className="text-sm font-medium text-gray-900 hover:underline"
-                >
-                  Forgot password?
-                </button>
-              </div>
-
-              <button
-                type="submit"
-                className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition"
-              >
-                Sign in
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900">Quick actions</h2>
-
-          <div className="mt-4 grid gap-3">
-            <QuickCard
-              title="Create account"
-              desc="Set up a new user account with secure credentials."
-              to="/signup"
+        <form
+          onSubmit={handleSubmit}
+          className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-5"
+        >
+          <div className="grid grid-cols-1 gap-4">
+            <Field
+              label="Email"
+              type="email"
+              value={form.email}
+              onChange={(v) => setForm((f) => ({ ...f, email: v }))}
+              placeholder="you@example.com"
             />
-            <QuickCard
-              title="Back home"
-              desc="Return to the homepage and keep testing freely."
-              to="/"
+
+            <PasswordField
+              label="Password"
+              value={form.password}
+              onChange={(v) => setForm((f) => ({ ...f, password: v }))}
+              placeholder="Enter your password"
+              visible={showPassword}
+              onToggle={() => setShowPassword((v) => !v)}
             />
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition disabled:opacity-60"
+            >
+              {isSubmitting ? "Signing in..." : "Sign in"}
+            </button>
           </div>
+        </form>
+
+        <div className="mt-6">
+          <Link
+            to="/signup"
+            className="text-sm font-medium text-gray-900 hover:underline"
+          >
+            Need an account?
+          </Link>
         </div>
       </section>
     </div>
@@ -268,24 +247,5 @@ function PasswordField({ label, value, onChange, placeholder, visible, onToggle 
         </button>
       </div>
     </div>
-  );
-}
-
-function QuickCard({ title, desc, to }) {
-  return (
-    <Link
-      to={to}
-      className="group rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 transition p-4"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-gray-900">{title}</div>
-          <div className="mt-1 text-sm text-gray-600">{desc}</div>
-        </div>
-        <div className="text-sm font-semibold text-gray-900 group-hover:translate-x-0.5 transition">
-          →
-        </div>
-      </div>
-    </Link>
   );
 }
