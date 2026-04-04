@@ -347,59 +347,81 @@ export const validateUserData = (userData) => {
 };
 
 /**
- * validateScrapeUrl
- * -----------------
- * Validates a URL provided for web scraping.
- * Rejects invalid URLs and private/internal addresses (SSRF protection).
- *
- * Returns { isValid, value, errors }
+ * Validate a URL provided for scraping
+ * Rules:
+ *  - Must be a non-empty string
+ *  - Must use http or https protocol only
+ *  - Must have a valid hostname (no bare IP localhost in production)
+ *  - Must not exceed 2048 characters
+ *  - Must not contain credentials (user:password@host)
+ *  - Must not target private/reserved IP ranges
  */
 export const validateScrapeUrl = (url) => {
   const errors = [];
 
-  if (!url || typeof url !== 'string' || url.trim() === '') {
-    return { isValid: false, value: null, errors: ['url is required.'] };
+  if (!url) {
+    errors.push('URL is required');
+    return { isValid: false, errors };
   }
 
-  const trimmed = url.trim();
+  if (typeof url !== 'string') {
+    errors.push('URL must be a string');
+    return { isValid: false, errors };
+  }
 
+  const trimmedUrl = url.trim();
+
+  if (trimmedUrl.length > 2048) {
+    errors.push('URL must not exceed 2048 characters');
+  }
+
+  // Parse the URL using the built-in URL constructor
   let parsed;
   try {
-    parsed = new URL(trimmed);
+    parsed = new URL(trimmedUrl);
   } catch {
-    return { isValid: false, value: null, errors: ['url must be a valid URL.'] };
+    errors.push('URL format is invalid (e.g. https://example.com/path)');
+    return { isValid: false, errors };
   }
 
-  // Only allow http and https
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    errors.push('url must use http or https.');
+  // Only allow http and https protocols
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    errors.push('URL must use http or https protocol');
   }
 
-  // SSRF protection — block private / loopback / link-local ranges
+  // Reject embedded credentials (https://user:pass@host)
+  if (parsed.username || parsed.password) {
+    errors.push('URL must not contain credentials (user:password)');
+  }
+
+  // Reject private / reserved IP ranges to prevent SSRF attacks
   const hostname = parsed.hostname.toLowerCase();
-
-  const blocked = [
-    /^localhost$/i,
-    /^127\./,
-    /^10\./,
-    /^172\.(1[6-9]|2\d|3[01])\./,
-    /^192\.168\./,
-    /^::1$/,
-    /^0\.0\.0\.0$/,
-    /^169\.254\./,         // link-local
-    /^fc00:/i,             // IPv6 ULA
-    /^fe80:/i,             // IPv6 link-local
-    /\.internal$/i,
-    /\.local$/i,
+  const privatePatterns = [
+    /^localhost$/,
+    /^127\./,          // 127.0.0.0/8 loopback
+    /^10\./,           // 10.0.0.0/8 private
+    /^192\.168\./,     // 192.168.0.0/16 private
+    /^172\.(1[6-9]|2\d|3[01])\./,  // 172.16.0.0/12 private
+    /^0\./,            // 0.0.0.0/8
+    /^169\.254\./,     // 169.254.0.0/16 link-local
+    /^::1$/,           // IPv6 loopback
+    /^fc00:/,          // IPv6 unique local
+    /^fe80:/,          // IPv6 link-local
   ];
 
-  if (blocked.some((pattern) => pattern.test(hostname))) {
-    errors.push('url must not point to a private or internal address.');
+  if (privatePatterns.some(pattern => pattern.test(hostname))) {
+    errors.push('URL must not point to a private or reserved address');
   }
 
-  if (errors.length) {
-    return { isValid: false, value: null, errors };
+  // Hostname must contain at least one dot (e.g. example.com), unless it's
+  // explicitly been allowed above — bare names like "intranet" are rejected
+  if (!hostname.includes('.') && hostname !== 'localhost') {
+    errors.push('URL must have a valid public hostname (e.g. https://example.com)');
   }
 
-  return { isValid: true, value: trimmed, errors: [] };
+  return {
+    isValid: errors.length === 0,
+    errors,
+    value: errors.length === 0 ? trimmedUrl : undefined
+  };
 };
