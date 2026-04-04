@@ -74,7 +74,7 @@ export const consumeInviteToken = (token) => {
 // ---------------------------------------------------------------------------
 // GET /admin/users  🔴
 // ---------------------------------------------------------------------------
-export const listUsers = (req, res) => {
+export const listUsers = async (req, res) => {
   const { accountType, isActive, search, page, limit } = req.query;
 
   // Validate accountType filter
@@ -85,7 +85,7 @@ export const listUsers = (req, res) => {
     );
   }
 
-  let all = findAll();
+  let all = await findAll();
 
   // Filter by accountType
   if (accountType) {
@@ -126,8 +126,8 @@ export const listUsers = (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /admin/users/:id/deactivate  🔴
 // ---------------------------------------------------------------------------
-export const deactivateUser = (req, res) => {
-  const user = findById(req.params.id);
+export const deactivateUser = async (req, res) => {
+  const user = await findById(req.params.id);
   if (!user) {
     return res.status(404).json(errBody('NOT_FOUND', 'User not found.'));
   }
@@ -145,33 +145,32 @@ export const deactivateUser = (req, res) => {
     );
   }
 
-  updateUser(user.id, { isActive: false });
+  await updateUser(user.id, { isActive: false });
   return res.status(200).json({ id: user.id, isActive: false });
 };
 
 // ---------------------------------------------------------------------------
 // GET /admin/dashboard/stats  🔴
 // ---------------------------------------------------------------------------
-export const getDashboardStats = (req, res) => {
-  const allUsers   = findAll();
-  const allPhotos  = findPhotos().data;   // no filters — returns all with default high limit
-  const allRequests = findOnboardingRequests({ limit: 100000 });
+export const getDashboardStats = async (req, res) => {
+  const [allUsers, allPhotosResult, pendingRequests, approvedRequests, onboardedData, totalScrapeJobs] =
+    await Promise.all([
+      findAll(),
+      findPhotos({ limit: 100000 }),
+      findOnboardingRequests({ status: 'under_review', limit: 100000 }),
+      findOnboardingRequests({ status: 'approved',     limit: 100000 }),
+      findOnboardingRequests({ status: 'onboarded',    limit: 100000 }),
+      countScrapeJobs(),
+    ]);
 
-  // Re-query with no pagination to get full counts
-  const totalPhotos  = findPhotos({ limit: 100000 }).total;
-  const totalUsers   = allUsers.length;
-
-  const pendingRequests  = findOnboardingRequests({ status: 'under_review', limit: 100000 }).total;
-  const approvedRequests = findOnboardingRequests({ status: 'approved',     limit: 100000 }).total;
-  const onboardedPhotos  = findOnboardingRequests({ status: 'onboarded',    limit: 100000 })
-    .data.reduce((sum, r) => sum + r.photoIds.length, 0);
+  const onboardedPhotos = onboardedData.data.reduce((sum, r) => sum + r.photoIds.length, 0);
 
   return res.status(200).json({
-    totalUsers,
-    totalScrapeJobs: countScrapeJobs(),
-    totalPhotos,
-    pendingRequests,
-    approvedRequests,
+    totalUsers:      allUsers.length,
+    totalScrapeJobs,
+    totalPhotos:     allPhotosResult.total,
+    pendingRequests: pendingRequests.total,
+    approvedRequests:approvedRequests.total,
     onboardedPhotos,
   });
 };

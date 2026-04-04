@@ -1,96 +1,122 @@
 /**
  * photoModel.js
  * -------------
- * In-memory store for Photo objects.
- * Replace with a real DB (Prisma / Mongoose) when one is connected.
+ * Supabase-backed store for Photo objects.
  *
- * Photo shape:
- * {
- *   id                : uuid
- *   scrapeJobId       : uuid          – parent scrape job
- *   submittedBy       : uuid          – user who ran the scrape job
- *   imageUrl          : string        – original source URL of the image
- *   status            : 'pending_review' | 'reviewed' | 'rejected'
- *   isDuplicate       : boolean
- *   duplicateOfId     : uuid | null
- *   isAutoExtracted   : boolean       – false once metadata is manually edited
- *   metadataEditedBy  : uuid | null
- *   metadataEditedAt  : ISO  | null
- *   // metadata fields (all nullable)
- *   name              : string | null
- *   regiment          : string | null
- *   age               : string | null  (stored as string per the API spec)
- *   dateTaken         : string | null
- *   location          : string | null
- *   photographer      : string | null
- *   collection        : string | null
- *   photoNotes        : string | null
- *   tags              : string[]
- *   license           : string | null
- *   createdAt         : ISO
- *   updatedAt         : ISO
- * }
+ * Table: photos
+ * Columns: id (uuid pk), scrape_job_id, submitted_by, image_url, status,
+ *          is_duplicate, duplicate_of_id, is_auto_extracted,
+ *          metadata_edited_by, metadata_edited_at,
+ *          name, regiment, age, date_taken, location, photographer,
+ *          collection, photo_notes, tags (text[]), license,
+ *          created_at, updated_at
  */
 
-import { randomUUID } from 'crypto';
+import { supabase } from '../config/supabase.js';
 
 // ---------------------------------------------------------------------------
-// In-memory store
+// Column mapping helpers
 // ---------------------------------------------------------------------------
-const photos = new Map(); // key: uuid → Photo
+
+const toDb = (obj) => ({
+  ...(obj.scrapeJobId        !== undefined && { scrape_job_id:       obj.scrapeJobId }),
+  ...(obj.submittedBy        !== undefined && { submitted_by:        obj.submittedBy }),
+  ...(obj.imageUrl           !== undefined && { image_url:           obj.imageUrl }),
+  ...(obj.status             !== undefined && { status:              obj.status }),
+  ...(obj.isDuplicate        !== undefined && { is_duplicate:        obj.isDuplicate }),
+  ...(obj.duplicateOfId      !== undefined && { duplicate_of_id:     obj.duplicateOfId }),
+  ...(obj.isAutoExtracted    !== undefined && { is_auto_extracted:   obj.isAutoExtracted }),
+  ...(obj.metadataEditedBy   !== undefined && { metadata_edited_by:  obj.metadataEditedBy }),
+  ...(obj.metadataEditedAt   !== undefined && { metadata_edited_at:  obj.metadataEditedAt }),
+  ...(obj.name               !== undefined && { name:                obj.name }),
+  ...(obj.regiment           !== undefined && { regiment:            obj.regiment }),
+  ...(obj.age                !== undefined && { age:                 obj.age }),
+  ...(obj.dateTaken          !== undefined && { date_taken:          obj.dateTaken }),
+  ...(obj.location           !== undefined && { location:            obj.location }),
+  ...(obj.photographer       !== undefined && { photographer:        obj.photographer }),
+  ...(obj.collection         !== undefined && { collection:          obj.collection }),
+  ...(obj.photoNotes         !== undefined && { photo_notes:         obj.photoNotes }),
+  ...(obj.tags               !== undefined && { tags:                obj.tags }),
+  ...(obj.license            !== undefined && { license:             obj.license }),
+});
+
+const fromDb = (row) => {
+  if (!row) return null;
+  return {
+    id:               row.id,
+    scrapeJobId:      row.scrape_job_id,
+    submittedBy:      row.submitted_by,
+    imageUrl:         row.image_url,
+    status:           row.status,
+    isDuplicate:      row.is_duplicate,
+    duplicateOfId:    row.duplicate_of_id,
+    isAutoExtracted:  row.is_auto_extracted,
+    metadataEditedBy: row.metadata_edited_by,
+    metadataEditedAt: row.metadata_edited_at,
+    name:             row.name,
+    regiment:         row.regiment,
+    age:              row.age,
+    dateTaken:        row.date_taken,
+    location:         row.location,
+    photographer:     row.photographer,
+    collection:       row.collection,
+    photoNotes:       row.photo_notes,
+    tags:             row.tags ?? [],
+    license:          row.license,
+    createdAt:        row.created_at,
+    updatedAt:        row.updated_at,
+  };
+};
 
 // ---------------------------------------------------------------------------
 // CRUD helpers
 // ---------------------------------------------------------------------------
 
 /** Create and persist a new photo. Returns the stored object. */
-export const createPhoto = ({
+export const createPhoto = async ({
   scrapeJobId,
   submittedBy,
   imageUrl,
-  name        = null,
-  regiment    = null,
-  age         = null,
-  dateTaken   = null,
-  location    = null,
-  photographer= null,
-  collection  = null,
-  photoNotes  = null,
-  tags        = [],
-  license     = null,
+  name         = null,
+  regiment     = null,
+  age          = null,
+  dateTaken    = null,
+  location     = null,
+  photographer = null,
+  collection   = null,
+  photoNotes   = null,
+  tags         = [],
+  license      = null,
   isAutoExtracted = true,
 }) => {
-  const now = new Date().toISOString();
-  const photo = {
-    id: randomUUID(),
-    scrapeJobId,
-    submittedBy,
-    imageUrl,
-    status: 'pending_review',
-    isDuplicate: false,
-    duplicateOfId: null,
-    isAutoExtracted,
-    metadataEditedBy: null,
-    metadataEditedAt: null,
-    name,
-    regiment,
-    age,
-    dateTaken,
-    location,
-    photographer,
-    collection,
-    photoNotes,
-    tags: Array.isArray(tags) ? tags : [],
-    license,
-    createdAt: now,
-    updatedAt: now,
-  };
-  photos.set(photo.id, photo);
-  return photo;
+  const { data, error } = await supabase
+    .from('photos')
+    .insert([toDb({
+      scrapeJobId, submittedBy, imageUrl,
+      status: 'pending_review',
+      isDuplicate: false, duplicateOfId: null,
+      isAutoExtracted, metadataEditedBy: null, metadataEditedAt: null,
+      name, regiment, age, dateTaken, location, photographer,
+      collection, photoNotes, tags: Array.isArray(tags) ? tags : [], license,
+    })])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return fromDb(data);
 };
 
 /** Return a photo by id, or null. */
-export const findPhotoById = (id) => photos.get(id) ?? null;
+export const findPhotoById = async (id) => {
+  const { data, error } = await supabase
+    .from('photos')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) return null;
+  return fromDb(data);
+};
 
 /**
  * Return photos with optional filters and pagination.
@@ -104,7 +130,7 @@ export const findPhotoById = (id) => photos.get(id) ?? null;
  * @param {number}  [opts.page]          – 1-based (default 1)
  * @param {number}  [opts.limit]         – (default 20, max 100)
  */
-export const findPhotos = ({
+export const findPhotos = async ({
   submittedBy,
   scrapeJobId,
   status,
@@ -113,35 +139,37 @@ export const findPhotos = ({
   page  = 1,
   limit = 20,
 } = {}) => {
-  let all = [...photos.values()];
+  const safeLimit = Math.min(Math.max(1, limit), 100);
+  const safePage  = Math.max(1, page);
 
-  if (submittedBy !== undefined) all = all.filter((p) => p.submittedBy === submittedBy);
-  if (scrapeJobId  !== undefined) all = all.filter((p) => p.scrapeJobId  === scrapeJobId);
-  if (status       !== undefined) all = all.filter((p) => p.status       === status);
-  if (isDuplicate  !== undefined) all = all.filter((p) => p.isDuplicate  === isDuplicate);
-  if (tags && tags.length)        all = all.filter((p) => tags.every((t) => p.tags.includes(t)));
+  let query = supabase.from('photos').select('*', { count: 'exact' });
 
-  const total      = all.length;
-  const safeLimit  = Math.min(Math.max(1, limit), 100);
-  const safePage   = Math.max(1, page);
-  const data       = all.slice((safePage - 1) * safeLimit, safePage * safeLimit);
+  if (submittedBy !== undefined) query = query.eq('submitted_by', submittedBy);
+  if (scrapeJobId !== undefined) query = query.eq('scrape_job_id', scrapeJobId);
+  if (status      !== undefined) query = query.eq('status', status);
+  if (isDuplicate !== undefined) query = query.eq('is_duplicate', isDuplicate);
+  if (tags && tags.length)       query = query.contains('tags', tags);
 
-  return { data, total, page: safePage, limit: safeLimit };
+  query = query.range((safePage - 1) * safeLimit, safePage * safeLimit - 1);
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  return { data: (data ?? []).map(fromDb), total: count ?? 0, page: safePage, limit: safeLimit };
 };
 
 /**
  * Partially update a photo.
  * Returns the updated photo, or null if not found.
  */
-export const updatePhoto = (id, updates) => {
-  const existing = photos.get(id);
-  if (!existing) return null;
-  const updated = {
-    ...existing,
-    ...updates,
-    id,
-    updatedAt: new Date().toISOString(),
-  };
-  photos.set(id, updated);
-  return updated;
+export const updatePhoto = async (id, updates) => {
+  const { data, error } = await supabase
+    .from('photos')
+    .update(toDb(updates))
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) return null;
+  return fromDb(data);
 };

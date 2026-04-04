@@ -1,20 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import PropTypes from "prop-types";
+import { createScrapeJob, getScrapeJobs, cancelScrapeJob } from "../services/scrapeJobService";
+import { useAuth } from "../hooks/useAuth";
 
-const STORAGE_KEY = "ttt_scrape_runs";
-
-function loadRuns() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRuns(runs) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(runs));
-}
+// Map backend statuses → frontend badge variants
+const STATUS_MAP = {
+  queued:    "pending",
+  running:   "processing",
+  completed: "complete",
+  failed:    "failed",
+  cancelled: "failed",
+};
 
 function StatusBadge({ status }) {
   const styles = {
@@ -23,103 +19,124 @@ function StatusBadge({ status }) {
     complete:   "bg-green-100 text-green-800",
     failed:     "bg-red-100 text-red-800",
   };
+  const label = status.charAt(0).toUpperCase() + status.slice(1);
   return (
     <span className={`text-xs font-semibold px-3 py-1 rounded-full ${styles[status] ?? "bg-gray-100 text-gray-700"}`}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+      {label}
     </span>
   );
 }
 
-StatusBadge.propTypes = {
-  status: PropTypes.oneOf(["pending", "processing", "complete", "failed"]).isRequired,
-};
-
 export default function Upload() {
-  const [url, setUrl] = useState("");
-  const [label, setLabel] = useState("");
-  const [runs, setRuns] = useState(loadRuns);
-  const [error, setError] = useState("");
+  const { user } = useAuth();
+  const [url, setUrl]             = useState("");
+  const [label, setLabel]         = useState("");
+  const [runs, setRuns]           = useState([]);
+  const [error, setError]         = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [deleteId, setDeleteId] = useState(null);
+  const [deleteId, setDeleteId]   = useState(null);
+  const [loadingRuns, setLoadingRuns] = useState(true);
+  const pollRef = useRef({});  // { [jobId]: intervalId }
 
+  // ── Load existing jobs on mount ────────────────────────────────────────────
   useEffect(() => {
-    saveRuns(runs);
+    if (!user) { setLoadingRuns(false); return; }
+    getScrapeJobs({ limit: 50 })
+      .then((res) => setRuns(res.data ?? []))
+      .catch(() => setRuns([]))
+      .finally(() => setLoadingRuns(false));
+  }, [user]);
+
+  // ── Poll in-progress jobs ──────────────────────────────────────────────────
+  useEffect(() => {
+    const active = runs.filter((r) => r.status === "queued" || r.status === "running");
+
+    // Clear polls for jobs no longer active
+    Object.keys(pollRef.current).forEach((id) => {
+      if (!active.find((r) => r.id === id)) {
+        clearInterval(pollRef.current[id]);
+        delete pollRef.current[id];
+      }
+    });
+
+    // Start polling for newly active jobs
+    active.forEach((job) => {
+      if (pollRef.current[job.id]) return;
+      pollRef.current[job.id] = setInterval(async () => {
+        try {
+          const updated = await getScrapeJobs({ limit: 50 });
+          setRuns(updated.data ?? []);
+        } catch { /* ignore */ }
+      }, 3000);
+    });
+
+    return () => {
+      Object.values(pollRef.current).forEach(clearInterval);
+    };
   }, [runs]);
 
   function isValidUrl(str) {
-    try {
-      new URL(str);
-      return true;
-    } catch {
-      return false;
-    }
+    try { new URL(str); return true; } catch { return false; }
   }
 
-  function handleSubmit(e) {
+  // Map backend job → display-friendly shape
+  function toDisplayRun(job) {
+    return {
+      id:          job.id,
+      url:         job.url,
+      label:       null,          // backend doesn't store a label yet
+      status:      STATUS_MAP[job.status] ?? "pending",
+      submittedAt: job.createdAt,
+      imagesFound: job.photoCount > 0 ? job.photoCount : null,
+      flagged:     null,
+    };
+  }
+
+  async function handleSubmit(e) {
     e.preventDefault();
     setError("");
 
-    if (!url.trim()) {
-      setError("Please enter a URL.");
-      return;
-    }
+    if (!url.trim()) { setError("Please enter a URL."); return; }
     if (!isValidUrl(url.trim())) {
       setError("That doesn't look like a valid URL. Make sure it starts with https://");
       return;
     }
+    if (!user) { setError("You must be logged in to submit a scrape job."); return; }
 
     setSubmitting(true);
-
-    // (mock)
-    const newRun = {
-      id: crypto.randomUUID(),
-      url: url.trim(),
-      label: label.trim() || null,
-      status: "processing",
-      submittedAt: new Date().toISOString(),
-      imagesFound: null,
-      flagged: null,
-    };
-
-    setRuns((prev) => [newRun, ...prev]);
-    setUrl("");
-    setLabel("");
-
-    setTimeout(() => {
-      setRuns((prev) =>
-        prev.map((r) =>
-          r.id === newRun.id
-            ? {
-                ...r,
-                status: "complete",
-                imagesFound: Math.floor(Math.random() * 40) + 5,
-                flagged: Math.floor(Math.random() * 6),
-              }
-            : r
-        )
-      );
+    try {
+      const job = await createScrapeJob({ url: url.trim(), maxPhotos: 50 });
+      setRuns((prev) => [job, ...prev]);
+      setUrl("");
+      setLabel("");
+    } catch (err) {
+      setError(err.message ?? "Failed to start scrape. Please try again.");
+    } finally {
       setSubmitting(false);
-    }, 1800);
+    }
   }
 
-  function confirmDelete(id) {
-    setDeleteId(id);
-  }
+  function confirmDelete(id) { setDeleteId(id); }
 
-  function handleDelete() {
+  async function handleDelete() {
+    try {
+      const job = runs.find((r) => r.id === deleteId);
+      if (job && (job.status === "queued" || job.status === "running")) {
+        await cancelScrapeJob(deleteId);
+      }
+    } catch { /* ignore cancel errors */ }
     setRuns((prev) => prev.filter((r) => r.id !== deleteId));
     setDeleteId(null);
   }
 
   function formatDate(iso) {
     return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
+      month: "short", day: "numeric", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
     });
   }
+
+  const displayRuns = runs.map(toDisplayRun);
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -206,23 +223,21 @@ export default function Upload() {
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-gray-900">
                 Scrape runs
-                {runs.length > 0 && (
+                {displayRuns.length > 0 && (
                   <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                    {runs.length}
+                    {displayRuns.length}
                   </span>
                 )}
               </h2>
-              {runs.length > 0 && (
-                <button
-                  onClick={() => { if (window.confirm("Clear all runs from local storage?")) { setRuns([]); } }}
-                  className="text-xs font-medium text-gray-400 hover:text-red-600 transition"
-                >
-                  Clear all
-                </button>
-              )}
             </div>
 
-            {runs.length === 0 ? (
+            {!user ? (
+              <div className="mt-6 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center">
+                <p className="text-sm font-semibold text-gray-900">Sign in to see your runs</p>
+              </div>
+            ) : loadingRuns ? (
+              <div className="mt-6 text-center text-sm text-gray-400">Loading runs…</div>
+            ) : displayRuns.length === 0 ? (
               <div className="mt-6 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center">
                 <p className="text-sm font-semibold text-gray-900">No runs yet</p>
                 <p className="mt-1 text-sm text-gray-500">
@@ -231,7 +246,7 @@ export default function Upload() {
               </div>
             ) : (
               <div className="mt-4 divide-y divide-gray-100">
-                {runs.map((run) => (
+                {displayRuns.map((run) => (
                   <div key={run.id} className="py-4 flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -249,8 +264,6 @@ export default function Upload() {
                           <>
                             <span>•</span>
                             <span>{run.imagesFound} images found</span>
-                            <span>•</span>
-                            <span>{run.flagged} flagged</span>
                           </>
                         )}
                       </div>
@@ -322,7 +335,7 @@ export default function Upload() {
           <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-5">
             <h3 className="text-sm font-semibold text-gray-700">Storage note</h3>
             <p className="mt-1.5 text-xs text-gray-500">
-              Run history is saved to <code className="font-mono bg-gray-200 px-1 rounded">localStorage</code> in your browser. Backend persistence coming in a future sprint.
+              Run history is persisted to the database and linked to your account.
             </p>
           </div>
         </div>

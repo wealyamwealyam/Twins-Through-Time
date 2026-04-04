@@ -1,49 +1,43 @@
 import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { getMe, updateMe } from "../services/accountService";
 
 export default function Profile() {
-  // Local-only profile (wire to backend later)
-  const STORAGE_KEY = "ttt_profile_v1";
+  const { user, loading: authLoading } = useAuth();
 
-  const defaultProfile = {
-    displayName: "Your Name",
-    role: "Reviewer",
-    affiliation: "Twins Through Time",
-    bio: "I help verify scraped Civil War photos and metadata.",
+  const [profile, setProfile] = useState({
+    displayName: "",
+    affiliation: "",
+    bio: "",
     preferences: {
-      defaultLanding: "upload", // upload | history
-      notifications: true, // UI-only for now
+      defaultLanding: "upload",
+      notifications: true,
     },
-    stats: {
-      uploadsSubmitted: 0,
-      reviewsCompleted: 0,
-      flagsRaised: 0,
-      agreementRate: null, // number 0-100 or null
-    },
-  };
-
-  const [profile, setProfile] = useState(defaultProfile);
+  });
   const [isEditing, setIsEditing] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Load localStorage
+  // Load profile from API when user is available
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setProfile(JSON.parse(raw));
-    } catch {
-      setProfile(defaultProfile);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Persist localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
-    } catch {
-      // ignore
-    }
-  }, [profile]);
+    if (!user) return;
+    getMe()
+      .then((data) => {
+        setProfile({
+          displayName: [data.firstName, data.lastName].filter(Boolean).join(" ") || data.username || "",
+          affiliation: data.affiliation || "",
+          bio: data.bio || "",
+          preferences: {
+            defaultLanding: data.preferences?.defaultLanding ?? "upload",
+            notifications: data.preferences?.notifications ?? true,
+          },
+        });
+      })
+      .catch((err) => setLoadError(err.message || "Failed to load profile."));
+  }, [user]);
 
   const initials = useMemo(() => {
     const parts = (profile.displayName || "")
@@ -55,15 +49,13 @@ export default function Profile() {
     return (a + b).toUpperCase();
   }, [profile.displayName]);
 
-  const agreementLabel =
-    typeof profile.stats.agreementRate === "number"
-      ? `${Math.max(0, Math.min(100, Math.round(profile.stats.agreementRate)))}%`
-      : "—";
-
   const systemStatus = {
-    account: { label: "Mock", value: "Local-only" },
-    storage: { label: "Mock", value: "Enabled" },
-    lastSync: { label: "Mock", value: "—" },
+    account: {
+      label: user?.accountType ?? "—",
+      value: user?.isActive ? "Active" : user ? "Inactive" : "—",
+    },
+    storage: { label: "Enabled", value: "Supabase" },
+    lastSync: { label: "Live", value: user ? "Connected" : "—" },
   };
 
   function updateField(key, value) {
@@ -74,14 +66,52 @@ export default function Profile() {
     setProfile((p) => ({ ...p, preferences: { ...p.preferences, [key]: value } }));
   }
 
-  function clearLocal() {
-    localStorage.removeItem(STORAGE_KEY);
-    setProfile(defaultProfile);
-    setIsEditing(false);
+  async function handleSave() {
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+    try {
+      const [firstName, ...rest] = profile.displayName.trim().split(/\s+/);
+      await updateMe({
+        firstName: firstName || "",
+        lastName: rest.join(" ") || "",
+        affiliation: profile.affiliation,
+        bio: profile.bio,
+        preferences: profile.preferences,
+      });
+      setSaveSuccess(true);
+      setIsEditing(false);
+    } catch (err) {
+      setSaveError(err.message || "Failed to save profile.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (authLoading) {
+    return (
+      <div className="max-w-6xl mx-auto py-12 text-center text-gray-500">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="max-w-6xl mx-auto py-12 text-center">
+        <p className="text-gray-600">Please <Link to="/login" className="underline font-semibold">log in</Link> to view your profile.</p>
+      </div>
+    );
   }
 
   return (
     <div className="max-w-6xl mx-auto">
+      {loadError && (
+        <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {loadError}
+        </div>
+      )}
+
       {/* HERO */}
       <section className="rounded-2xl bg-white shadow-sm border border-gray-200 p-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -90,8 +120,7 @@ export default function Profile() {
               Profile
             </h1>
             <p className="mt-3 text-gray-600 text-base md:text-lg">
-              Manage your reviewer workspace settings. For this sprint, profile
-              data is stored locally in your browser.
+              Manage your account settings. Changes are saved to the database.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -112,7 +141,7 @@ export default function Profile() {
             </div>
 
             <div className="mt-4 text-xs text-gray-500">
-              Login & roles coming soon • Preferences will sync to your account later
+              Logged in as <span className="font-semibold">{user.username}</span> &bull; {user.email}
             </div>
           </div>
 
@@ -139,7 +168,7 @@ export default function Profile() {
             </div>
 
             <div className="mt-4 text-xs text-gray-500">
-              This will connect to authentication + user records once the backend is ready.
+              Connected to your live account and database.
             </div>
           </div>
         </div>
@@ -153,13 +182,12 @@ export default function Profile() {
             <h2 className="text-lg font-semibold text-gray-900">Profile details</h2>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={clearLocal}
-                className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold text-gray-900 bg-gray-100 hover:bg-gray-200 transition"
-              >
-                Clear local data
-              </button>
+              {saveError && (
+                <span className="text-xs text-red-600">{saveError}</span>
+              )}
+              {saveSuccess && (
+                <span className="text-xs text-green-600">Saved!</span>
+              )}
             </div>
           </div>
 
@@ -170,10 +198,10 @@ export default function Profile() {
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="text-sm font-semibold text-gray-900">
-                  {profile.displayName}
+                  {profile.displayName || user.username}
                 </div>
                 <span className="text-xs font-semibold px-3 py-1 rounded-full bg-gray-100 text-gray-900">
-                  {profile.role}
+                  {user.accountType}
                 </span>
               </div>
               <div className="text-xs text-gray-500 mt-1">{profile.affiliation}</div>
@@ -191,12 +219,14 @@ export default function Profile() {
                   onChange={(v) => updateField("displayName", v)}
                   placeholder="e.g., Vedanshi Jain"
                 />
-                <Field
-                  label="Role (label only)"
-                  value={profile.role}
-                  onChange={(v) => updateField("role", v)}
-                  placeholder="e.g., Reviewer"
-                />
+                <div>
+                  <label className="block text-sm font-semibold text-gray-900">Account type</label>
+                  <input
+                    value={user.accountType}
+                    readOnly
+                    className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed"
+                  />
+                </div>
                 <Field
                   label="Affiliation"
                   value={profile.affiliation}
@@ -218,14 +248,15 @@ export default function Profile() {
 
               <div className="mt-4 flex items-center justify-between gap-3">
                 <div className="text-xs text-gray-500">
-                  Saved automatically (local storage) as you type.
+                  Changes are saved to the database.
                 </div>
                 <button
                   type="button"
-                  onClick={() => setIsEditing(false)}
-                  className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition"
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50 transition"
                 >
-                  Done
+                  {saving ? "Saving…" : "Save changes"}
                 </button>
               </div>
             </div>
@@ -296,16 +327,16 @@ export default function Profile() {
           <h2 className="text-lg font-semibold text-gray-900">Your stats</h2>
 
           <div className="mt-4 grid gap-3">
-            <StatRow label="Uploads submitted" value={profile.stats.uploadsSubmitted} />
-            <StatRow label="Reviews completed" value={profile.stats.reviewsCompleted} />
-            <StatRow label="Flags raised" value={profile.stats.flagsRaised} />
-            <StatRow label="Agreement rate" value={agreementLabel} />
+            <StatRow label="Uploads submitted" value="—" />
+            <StatRow label="Reviews completed" value="—" />
+            <StatRow label="Flags raised" value="—" />
+            <StatRow label="Agreement rate" value="—" />
           </div>
 
           <div className="mt-5 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-5">
             <div className="text-sm font-semibold text-gray-900">Coming soon</div>
             <div className="mt-2 text-sm text-gray-600">
-              Real stats will come from backend runs + review decisions.
+              Stats will reflect your verification work once review decisions are tracked.
             </div>
           </div>
 
@@ -332,10 +363,10 @@ export default function Profile() {
         <h2 className="text-lg font-semibold text-gray-900">Key notes</h2>
         <ul className="mt-3 grid gap-2 text-sm text-gray-600 list-disc pl-5">
           <li>
-            Profile is local-only for now. When login is added, data will sync to your account.
+            Profile data is stored in the database and synced to your account.
           </li>
           <li>
-            Planned: reviewer roles, permissions, export, and audit trail for decisions.
+            Account type is managed by admins and cannot be changed here.
           </li>
           <li>
             Stats will reflect your verification work (flags, approvals, and agreement with final outcomes).

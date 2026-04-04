@@ -24,7 +24,7 @@ const VALID_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled']
 // ---------------------------------------------------------------------------
 // POST /scrape-jobs  🔒
 // ---------------------------------------------------------------------------
-export const submitScrapeJob = (req, res) => {
+export const submitScrapeJob = async (req, res) => {
   const { url, maxPhotos = 50 } = req.body ?? {};
 
   // Validate URL via existing SSRF-aware validator
@@ -43,7 +43,7 @@ export const submitScrapeJob = (req, res) => {
     );
   }
 
-  const job = createScrapeJob({
+  const job = await createScrapeJob({
     url:         urlValidation.value,
     maxPhotos:   max,
     submittedBy: req.user.id,
@@ -56,7 +56,7 @@ export const submitScrapeJob = (req, res) => {
 // GET /scrape-jobs  🔒
 // Users see only their own jobs; admins see all.
 // ---------------------------------------------------------------------------
-export const listScrapeJobs = (req, res) => {
+export const listScrapeJobs = async (req, res) => {
   const { status, page, limit } = req.query;
   const isAdmin = req.user.accountType === 'admin';
 
@@ -66,7 +66,7 @@ export const listScrapeJobs = (req, res) => {
     );
   }
 
-  const result = findScrapeJobs({
+  const result = await findScrapeJobs({
     submittedBy: isAdmin ? null : req.user.id,
     status:      status || null,
     page,
@@ -79,8 +79,8 @@ export const listScrapeJobs = (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /scrape-jobs/:id  🔒
 // ---------------------------------------------------------------------------
-export const getScrapeJob = (req, res) => {
-  const job = findScrapeJobById(req.params.id);
+export const getScrapeJob = async (req, res) => {
+  const job = await findScrapeJobById(req.params.id);
   if (!job) {
     return res.status(404).json(errBody('NOT_FOUND', 'Scrape job not found.'));
   }
@@ -97,8 +97,8 @@ export const getScrapeJob = (req, res) => {
 // DELETE /scrape-jobs/:id  🔒
 // Only queued or running jobs can be cancelled.
 // ---------------------------------------------------------------------------
-export const cancelScrapeJob = (req, res) => {
-  const job = findScrapeJobById(req.params.id);
+export const cancelScrapeJob = async (req, res) => {
+  const job = await findScrapeJobById(req.params.id);
   if (!job) {
     return res.status(404).json(errBody('NOT_FOUND', 'Scrape job not found.'));
   }
@@ -117,6 +117,6 @@ export const cancelScrapeJob = (req, res) => {
     );
   }
 
-  updateScrapeJob(job.id, { status: 'cancelled', completedAt: new Date().toISOString() });
+  await updateScrapeJob(job.id, { status: 'cancelled', completedAt: new Date().toISOString() });
   return res.status(204).send();
 };
