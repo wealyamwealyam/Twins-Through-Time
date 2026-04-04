@@ -28,8 +28,8 @@ import {
 // ---------------------------------------------------------------------------
 // GET /account/profile  🔒
 // ---------------------------------------------------------------------------
-export const getOwnProfile = (req, res) => {
-  const user = findById(req.user.id);
+export const getOwnProfile = async (req, res) => {
+  const user = await findById(req.user.id);
 
   if (!user) {
     return res.status(404).json({
@@ -54,8 +54,8 @@ const ALLOWED_SELF_UPDATE_FIELDS = [
   'gender',
 ];
 
-export const updateOwnProfile = (req, res) => {
-  const user = findById(req.user.id);
+export const updateOwnProfile = async (req, res) => {
+  const user = await findById(req.user.id);
 
   if (!user) {
     return res.status(404).json({
@@ -117,15 +117,15 @@ export const updateOwnProfile = (req, res) => {
     });
   }
 
-  const updated = updateUser(req.user.id, updates);
+  const updated = await updateUser(req.user.id, updates);
   return res.status(200).json(toPublic(updated));
 };
 
 // ---------------------------------------------------------------------------
 // GET /account/users/:id  🔴 admin
 // ---------------------------------------------------------------------------
-export const getUserById = (req, res) => {
-  const user = findById(req.params.id);
+export const getUserById = async (req, res) => {
+  const user = await findById(req.params.id);
 
   if (!user) {
     return res.status(404).json({
@@ -141,7 +141,7 @@ export const getUserById = (req, res) => {
 // ---------------------------------------------------------------------------
 const VALID_ROLES = ['community_member', 'contributor', 'admin'];
 
-export const updateUserRole = (req, res) => {
+export const updateUserRole = async (req, res) => {
   const { accountType } = req.body;
 
   if (!accountType) {
@@ -164,7 +164,7 @@ export const updateUserRole = (req, res) => {
     });
   }
 
-  const user = findById(req.params.id);
+  const user = await findById(req.params.id);
 
   if (!user) {
     return res.status(404).json({
@@ -172,6 +172,6 @@ export const updateUserRole = (req, res) => {
     });
   }
 
-  const updated = updateUser(req.params.id, { accountType });
+  const updated = await updateUser(req.params.id, { accountType });
   return res.status(200).json(toPublic(updated));
 };

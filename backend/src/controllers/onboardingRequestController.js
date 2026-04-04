@@ -42,20 +42,22 @@ const errBody = (code, message, details = null) => ({
 });
 
 /** Resolve an OnboardingRequest's photoIds → full Photo objects. */
-const hydratePhotos = (req) =>
-  req.photoIds.map((id) => findPhotoById(id)).filter(Boolean);
+const hydratePhotos = async (req) => {
+  const photos = await Promise.all(req.photoIds.map((id) => findPhotoById(id)));
+  return photos.filter(Boolean);
+};
 
 /** Attach hydrated photos and hydrated suggestions for the detail view. */
-const toDetail = (req) => ({
+const toDetail = async (req) => ({
   ...req,
-  photos:      hydratePhotos(req),
-  suggestions: findSuggestionsByRequestId(req.id),
+  photos:      await hydratePhotos(req),
+  suggestions: await findSuggestionsByRequestId(req.id),
 });
 
 // ---------------------------------------------------------------------------
 // POST /onboarding-requests  🔒
 // ---------------------------------------------------------------------------
-export const createOnboardingReq = (req, res) => {
+export const createOnboardingReq = async (req, res) => {
   const { onboardingRequestTitle, onboardingRequestNotes, photoIds } = req.body ?? {};
 
   // ── Validate title ────────────────────────────────────────────────────────
@@ -85,12 +87,11 @@ export const createOnboardingReq = (req, res) => {
   const errors = [];
 
   for (const photoId of photoIds) {
-    const photo = findPhotoById(photoId);
+    const photo = await findPhotoById(photoId);
     if (!photo) {
       errors.push(`Photo ${photoId} not found.`);
       continue;
     }
-    // Non-admins may only include their own photos
     if (accountType !== 'admin' && photo.submittedBy !== userId) {
       errors.push(`Photo ${photoId} does not belong to you.`);
       continue;
@@ -104,7 +105,7 @@ export const createOnboardingReq = (req, res) => {
     return res.status(422).json(errBody('UNPROCESSABLE', 'One or more photos failed validation.', errors));
   }
 
-  const newReq = createOnboardingRequest({
+  const newReq = await createOnboardingRequest({
     onboardingRequestTitle: onboardingRequestTitle.trim(),
     onboardingRequestNotes: onboardingRequestNotes ?? null,
     submittedBy: userId,
@@ -124,7 +125,7 @@ export const createOnboardingReq = (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /onboarding-requests  🔒
 // ---------------------------------------------------------------------------
-export const listOnboardingReqs = (req, res) => {
+export const listOnboardingReqs = async (req, res) => {
   const { status, submittedBy, reviewerId, page, limit } = req.query;
   const { id: userId, accountType } = req.user;
 
@@ -134,17 +135,15 @@ export const listOnboardingReqs = (req, res) => {
     );
   }
 
-  // submittedBy / reviewerId filters are admin-only
   if ((submittedBy || reviewerId) && accountType !== 'admin') {
     return res.status(403).json(errBody('FORBIDDEN', '`submittedBy` and `reviewerId` filters are admin only.'));
   }
 
-  // Community members see only their own requests
   const ownerFilter =
     accountType === 'community_member' ? userId :
     submittedBy  ? submittedBy         : undefined;
 
-  const result = findOnboardingRequests({
+  const result = await findOnboardingRequests({
     submittedBy: ownerFilter,
     status:      status     || undefined,
     reviewerId:  reviewerId || undefined,
@@ -152,34 +151,30 @@ export const listOnboardingReqs = (req, res) => {
     limit:       limit ? parseInt(limit, 10) : 20,
   });
 
-  // Add photoCount to each item for the list view
   result.data = result.data.map((r) => ({ ...r, photoCount: r.photoIds.length }));
-
   return res.status(200).json(result);
 };
 
 // ---------------------------------------------------------------------------
 // GET /onboarding-requests/:id  🔒
 // ---------------------------------------------------------------------------
-export const getOnboardingReq = (req, res) => {
-  const onbReq = findOnboardingRequestById(req.params.id);
+export const getOnboardingReq = async (req, res) => {
+  const onbReq = await findOnboardingRequestById(req.params.id);
   if (!onbReq) return res.status(404).json(errBody('NOT_FOUND', 'Onboarding request not found.'));
 
   const { id: userId, accountType } = req.user;
-
-  // Community members may only see their own requests
   if (accountType === 'community_member' && onbReq.submittedBy !== userId) {
     return res.status(403).json(errBody('FORBIDDEN', 'You do not have permission to view this request.'));
   }
 
-  return res.status(200).json(toDetail(onbReq));
+  return res.status(200).json(await toDetail(onbReq));
 };
 
 // ---------------------------------------------------------------------------
 // PATCH /onboarding-requests/:id  🔒  (submitter only, pending status only)
 // ---------------------------------------------------------------------------
-export const updateOnboardingReq = (req, res) => {
-  const onbReq = findOnboardingRequestById(req.params.id);
+export const updateOnboardingReq = async (req, res) => {
+  const onbReq = await findOnboardingRequestById(req.params.id);
   if (!onbReq) return res.status(404).json(errBody('NOT_FOUND', 'Onboarding request not found.'));
 
   if (onbReq.submittedBy !== req.user.id) {
@@ -220,23 +215,21 @@ export const updateOnboardingReq = (req, res) => {
     );
   }
 
-  return res.status(200).json(toDetail(updateOnboardingRequest(onbReq.id, updates)));
+  return res.status(200).json(await toDetail(await updateOnboardingRequest(onbReq.id, updates)));
 };
 
 // ---------------------------------------------------------------------------
 // POST /onboarding-requests/:id/photos  🔒
 // ---------------------------------------------------------------------------
-export const addPhotos = (req, res) => {
-  const onbReq = findOnboardingRequestById(req.params.id);
+export const addPhotos = async (req, res) => {
+  const onbReq = await findOnboardingRequestById(req.params.id);
   if (!onbReq) return res.status(404).json(errBody('NOT_FOUND', 'Onboarding request not found.'));
 
   if (onbReq.submittedBy !== req.user.id && req.user.accountType !== 'admin') {
     return res.status(403).json(errBody('FORBIDDEN', 'You do not have permission to modify this request.'));
   }
   if (onbReq.status !== 'pending') {
-    return res.status(422).json(
-      errBody('UNPROCESSABLE', 'Photos can only be added to a \`pending\` request.')
-    );
+    return res.status(422).json(errBody('UNPROCESSABLE', 'Photos can only be added to a `pending` request.'));
   }
 
   const { photoIds } = req.body ?? {};
@@ -252,7 +245,7 @@ export const addPhotos = (req, res) => {
       errors.push(`Photo ${photoId} is already in this request.`);
       continue;
     }
-    const photo = findPhotoById(photoId);
+    const photo = await findPhotoById(photoId);
     if (!photo) { errors.push(`Photo ${photoId} not found.`); continue; }
     if (accountType !== 'admin' && photo.submittedBy !== userId) {
       errors.push(`Photo ${photoId} does not belong to you.`);
@@ -267,27 +260,25 @@ export const addPhotos = (req, res) => {
     return res.status(422).json(errBody('UNPROCESSABLE', 'One or more photos failed validation.', errors));
   }
 
-  const updated = updateOnboardingRequest(onbReq.id, {
+  const updated = await updateOnboardingRequest(onbReq.id, {
     photoIds: [...onbReq.photoIds, ...photoIds],
   });
 
-  return res.status(200).json(toDetail(updated));
+  return res.status(200).json(await toDetail(updated));
 };
 
 // ---------------------------------------------------------------------------
 // DELETE /onboarding-requests/:id/photos/:photoId  🔒
 // ---------------------------------------------------------------------------
-export const removePhoto = (req, res) => {
-  const onbReq = findOnboardingRequestById(req.params.id);
+export const removePhoto = async (req, res) => {
+  const onbReq = await findOnboardingRequestById(req.params.id);
   if (!onbReq) return res.status(404).json(errBody('NOT_FOUND', 'Onboarding request not found.'));
 
   if (onbReq.submittedBy !== req.user.id && req.user.accountType !== 'admin') {
     return res.status(403).json(errBody('FORBIDDEN', 'You do not have permission to modify this request.'));
   }
   if (onbReq.status !== 'pending') {
-    return res.status(422).json(
-      errBody('UNPROCESSABLE', 'Photos can only be removed from a \`pending\` request.')
-    );
+    return res.status(422).json(errBody('UNPROCESSABLE', 'Photos can only be removed from a `pending` request.'));
   }
 
   const { photoId } = req.params;
@@ -295,7 +286,7 @@ export const removePhoto = (req, res) => {
     return res.status(404).json(errBody('NOT_FOUND', 'Photo not found in this onboarding request.'));
   }
 
-  updateOnboardingRequest(onbReq.id, {
+  await updateOnboardingRequest(onbReq.id, {
     photoIds: onbReq.photoIds.filter((id) => id !== photoId),
   });
 
@@ -305,28 +296,26 @@ export const removePhoto = (req, res) => {
 // ---------------------------------------------------------------------------
 // DELETE /onboarding-requests/:id  🔒  (submitter or admin, pending only)
 // ---------------------------------------------------------------------------
-export const deleteOnboardingReq = (req, res) => {
-  const onbReq = findOnboardingRequestById(req.params.id);
+export const deleteOnboardingReq = async (req, res) => {
+  const onbReq = await findOnboardingRequestById(req.params.id);
   if (!onbReq) return res.status(404).json(errBody('NOT_FOUND', 'Onboarding request not found.'));
 
   if (onbReq.submittedBy !== req.user.id && req.user.accountType !== 'admin') {
     return res.status(403).json(errBody('FORBIDDEN', 'Only the submitter or an admin may delete this request.'));
   }
   if (onbReq.status !== 'pending') {
-    return res.status(422).json(
-      errBody('UNPROCESSABLE', 'Only \`pending\` requests can be deleted.')
-    );
+    return res.status(422).json(errBody('UNPROCESSABLE', 'Only `pending` requests can be deleted.'));
   }
 
-  deleteOnboardingRequest(onbReq.id);
+  await deleteOnboardingRequest(onbReq.id);
   return res.status(204).send();
 };
 
 // ---------------------------------------------------------------------------
 // POST /onboarding-requests/:id/submit  🔒
 // ---------------------------------------------------------------------------
-export const submitOnboardingReq = (req, res) => {
-  const onbReq = findOnboardingRequestById(req.params.id);
+export const submitOnboardingReq = async (req, res) => {
+  const onbReq = await findOnboardingRequestById(req.params.id);
   if (!onbReq) return res.status(404).json(errBody('NOT_FOUND', 'Onboarding request not found.'));
 
   if (onbReq.submittedBy !== req.user.id) {
@@ -341,15 +330,15 @@ export const submitOnboardingReq = (req, res) => {
     return res.status(422).json(errBody('UNPROCESSABLE', 'Cannot submit an onboarding request with no photos.'));
   }
 
-  const updated = updateOnboardingRequest(onbReq.id, { status: 'under_review' });
+  const updated = await updateOnboardingRequest(onbReq.id, { status: 'under_review' });
   return res.status(200).json({ id: updated.id, status: updated.status, updatedAt: updated.updatedAt });
 };
 
 // ---------------------------------------------------------------------------
 // POST /onboarding-requests/:id/approve  🔴  (admin only)
 // ---------------------------------------------------------------------------
-export const approveOnboardingReq = (req, res) => {
-  const onbReq = findOnboardingRequestById(req.params.id);
+export const approveOnboardingReq = async (req, res) => {
+  const onbReq = await findOnboardingRequestById(req.params.id);
   if (!onbReq) return res.status(404).json(errBody('NOT_FOUND', 'Onboarding request not found.'));
 
   if (onbReq.status !== 'under_review') {
@@ -361,7 +350,7 @@ export const approveOnboardingReq = (req, res) => {
   const { adminNote } = req.body ?? {};
   const now = new Date().toISOString();
 
-  const updated = updateOnboardingRequest(onbReq.id, {
+  const updated = await updateOnboardingRequest(onbReq.id, {
     status:     'approved',
     reviewedBy: req.user.id,
     reviewedAt: now,
@@ -380,8 +369,8 @@ export const approveOnboardingReq = (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /onboarding-requests/:id/reject  🔴  (admin only)
 // ---------------------------------------------------------------------------
-export const rejectOnboardingReq = (req, res) => {
-  const onbReq = findOnboardingRequestById(req.params.id);
+export const rejectOnboardingReq = async (req, res) => {
+  const onbReq = await findOnboardingRequestById(req.params.id);
   if (!onbReq) return res.status(404).json(errBody('NOT_FOUND', 'Onboarding request not found.'));
 
   if (!['under_review', 'pending'].includes(onbReq.status)) {
@@ -393,21 +382,21 @@ export const rejectOnboardingReq = (req, res) => {
   const { adminNote } = req.body ?? {};
   const now = new Date().toISOString();
 
-  const updated = updateOnboardingRequest(onbReq.id, {
+  const updated = await updateOnboardingRequest(onbReq.id, {
     status:     'rejected',
     reviewedBy: req.user.id,
     reviewedAt: now,
     adminNote:  adminNote ?? null,
   });
 
-  return res.status(200).json(toDetail(updated));
+  return res.status(200).json(await toDetail(updated));
 };
 
 // ---------------------------------------------------------------------------
 // PATCH /onboarding-requests/:id/assign  🔴  (admin only)
 // ---------------------------------------------------------------------------
-export const assignReviewer = (req, res) => {
-  const onbReq = findOnboardingRequestById(req.params.id);
+export const assignReviewer = async (req, res) => {
+  const onbReq = await findOnboardingRequestById(req.params.id);
   if (!onbReq) return res.status(404).json(errBody('NOT_FOUND', 'Onboarding request not found.'));
 
   const { reviewerId } = req.body ?? {};
@@ -415,8 +404,7 @@ export const assignReviewer = (req, res) => {
     return res.status(400).json(errBody('VALIDATION_ERROR', '`reviewerId` is required.'));
   }
 
-  // Verify the target user exists and is an admin
-  const reviewer = findUserById(reviewerId);
+  const reviewer = await findUserById(reviewerId);
   if (!reviewer) {
     return res.status(404).json(errBody('NOT_FOUND', `User ${reviewerId} not found.`));
   }
@@ -424,5 +412,5 @@ export const assignReviewer = (req, res) => {
     return res.status(422).json(errBody('UNPROCESSABLE', 'Reviewer must be an admin.'));
   }
 
-  return res.status(200).json(toDetail(updateOnboardingRequest(onbReq.id, { reviewerId })));
+  return res.status(200).json(await toDetail(await updateOnboardingRequest(onbReq.id, { reviewerId })));
 };
