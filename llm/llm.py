@@ -1,7 +1,7 @@
-import json
+﻿import json
 import os
 import re
-from typing import Any
+from typing import Any, Callable
 
 import torch
 import transformers
@@ -26,9 +26,13 @@ pipeline = transformers.pipeline(
     torch_dtype=torch.float32,
 )
 
+LogFn = Callable[[str], None]
+
 
 # Run the LLM. Give it the messages array and then return the generated content
-def run_llm(messages, maxTokens=256):
+def run_llm(messages, maxTokens=256, log_fn: LogFn | None = None):
+    if log_fn:
+        log_fn(f"Running LLM inference (maxTokens={maxTokens})")
     outputs = pipeline(
         messages,
         max_new_tokens=maxTokens,
@@ -44,6 +48,8 @@ jsonFormat = {
     "Military Unit": "value",
     "Age": 0,
     "Year Born": 0,
+    "Confidence": 0.0,
+    "Source": "https://example.com/source-page",
     "Other": {
         "other1": "value",
         "other2": "value",
@@ -59,6 +65,8 @@ jsonKey = {
     "Military Unit": "The military unit the soldier served in.",
     "Age": "The age of the soldier at the time described, if known.",
     "Year Born": "The year the soldier was born, if known.",
+    "Confidence": "Numeric confidence from 0.0 to 1.0 (downstream scoring may override this value).",
+    "Source": "The page URL where this image record was found.",
     "Other": {
         "": "Any other useful fact. Replace the key with a descriptive key.",
         "": "Facts in Other should be short and specific, not long paragraphs.",
@@ -74,10 +82,12 @@ SYSTEM_PROMPT = (
     "Use these key definitions: "
     f"{jsonKey}. "
     "Rules: "
-    "(1) If unknown, set value to null. "
+    "(1) If unknown, set value to null except Confidence and Source. "
     "(2) Age and Year Born must be integers or null. "
-    "(3) Other must be a JSON object of short key-value facts. "
-    "(4) Do not add or remove top-level keys."
+    "(3) Confidence must be a number from 0.0 to 1.0. "
+    "(4) Source must be a URL string (or empty string if unavailable). "
+    "(5) Other must be a JSON object of short key-value facts. "
+    "(6) Do not add or remove top-level keys."
 )
 
 
@@ -96,6 +106,8 @@ def _default_metadata() -> dict[str, Any]:
         "Military Unit": None,
         "Age": None,
         "Year Born": None,
+        "Confidence": 0.0,
+        "Source": "",
         "Other": {},
     }
 
@@ -115,6 +127,125 @@ def _to_int_or_none(value: Any) -> int | None:
     return None
 
 
+def _to_confidence(value: Any) -> float:
+    confidence = 0.0
+
+    if isinstance(value, (int, float)):
+        confidence = float(value)
+    elif isinstance(value, str):
+        match = re.search(r"-?\d+(?:\.\d+)?", value)
+        if match:
+            try:
+                confidence = float(match.group(0))
+            except ValueError:
+                confidence = 0.0
+
+    # If model returned percentage-style values (for example 82), normalize.
+    if confidence > 1.0 and confidence <= 100.0:
+        confidence = confidence / 100.0
+
+    if confidence < 0.0:
+        confidence = 0.0
+    if confidence > 1.0:
+        confidence = 1.0
+
+    return round(confidence, 4)
+
+
+def _normalize_match_text(text: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(text).lower())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _value_supported_in_text(value: Any, normalized_doc: str) -> bool:
+    if not _has_value(value):
+        return False
+
+    normalized_value = _normalize_match_text(str(value))
+    if not normalized_value:
+        return False
+
+    return f" {normalized_value} " in f" {normalized_doc} "
+
+
+def _rule_based_confidence(metadata: dict[str, Any], document_text: str) -> float:
+    normalized_doc = _normalize_match_text(document_text)
+
+    points = 0.0
+    max_points = 126.0
+
+    # Presence + direct textual support weights.
+    field_weights = {
+        "First Name": (12.0, 10.0),
+        "Middle Name or Initial": (3.0, 2.0),
+        "Last Name": (12.0, 10.0),
+        "Military Unit": (14.0, 12.0),
+        "Age": (6.0, 6.0),
+        "Year Born": (6.0, 6.0),
+    }
+
+    supports: dict[str, bool] = {}
+
+    for field, (presence_weight, support_weight) in field_weights.items():
+        value = metadata.get(field)
+        if _has_value(value):
+            points += presence_weight
+        supported = _value_supported_in_text(value, normalized_doc)
+        supports[field] = supported
+        if supported:
+            points += support_weight
+
+    other = metadata.get("Other")
+    if isinstance(other, dict) and other:
+        bonus = 0.0
+        for key, value in other.items():
+            if not _has_value(key) or not _has_value(value):
+                continue
+            bonus += 2.0
+            if _value_supported_in_text(value, normalized_doc):
+                bonus += 1.0
+        points += min(10.0, bonus)
+
+    core_fields = ("First Name", "Last Name", "Military Unit")
+    if all(_has_value(metadata.get(name)) for name in core_fields):
+        points += 5.0
+    if all(supports.get(name, False) for name in core_fields):
+        points += 8.0
+
+    if supports.get("Age") or supports.get("Year Born"):
+        points += 4.0
+
+    confidence = points / max_points
+    if confidence < 0.0:
+        confidence = 0.0
+    if confidence > 1.0:
+        confidence = 1.0
+    return round(confidence, 4)
+
+
+def _finalize_confidence(metadata: dict[str, Any], document_text: str) -> dict[str, Any]:
+    rule_conf = _rule_based_confidence(metadata, document_text)
+    llm_conf = _to_confidence(metadata.get("Confidence"))
+
+    # Primarily deterministic confidence from extraction quality + textual support.
+    # Keep only a small LLM influence when non-zero.
+    if llm_conf > 0:
+        confidence = (0.9 * rule_conf) + (0.1 * llm_conf)
+    else:
+        confidence = rule_conf
+
+    metadata["Confidence"] = round(min(1.0, max(0.0, confidence)), 4)
+    return metadata
+
+
 def normalize_metadata_schema(candidate: Any) -> dict[str, Any]:
     result = _default_metadata()
     if not isinstance(candidate, dict):
@@ -128,6 +259,10 @@ def normalize_metadata_schema(candidate: Any) -> dict[str, Any]:
     result["Military Unit"] = candidate.get("Military Unit") if candidate.get("Military Unit") not in ("",) else None
     result["Age"] = _to_int_or_none(candidate.get("Age"))
     result["Year Born"] = _to_int_or_none(candidate.get("Year Born"))
+    result["Confidence"] = _to_confidence(candidate.get("Confidence"))
+
+    source = candidate.get("Source")
+    result["Source"] = str(source).strip() if source is not None else ""
 
     other = candidate.get("Other")
     if isinstance(other, dict):
@@ -152,24 +287,41 @@ def _extract_first_json_block(text: str) -> str | None:
     return text[start : end + 1]
 
 
-def extract_metadata(document_text: str, maxTokens: int = 350) -> dict[str, Any]:
+def extract_metadata(document_text: str, maxTokens: int = 350, log_fn: LogFn | None = None) -> dict[str, Any]:
+    if log_fn:
+        log_fn("Building metadata extraction prompt")
+
     messages = build_metadata_messages(document_text)
-    response = run_llm(messages, maxTokens=maxTokens)
+
+    try:
+        response = run_llm(messages, maxTokens=maxTokens, log_fn=log_fn)
+    except Exception as exc:
+        if log_fn:
+            log_fn(f"LLM runtime error: {exc}")
+        return _default_metadata()
 
     if isinstance(response, dict):
-        return normalize_metadata_schema(response)
+        if log_fn:
+            log_fn("LLM returned dict output directly")
+        normalized = normalize_metadata_schema(response)
+        return _finalize_confidence(normalized, document_text)
 
     response_text = str(response).strip()
     json_text = _extract_first_json_block(response_text)
     if json_text is None:
+        if log_fn:
+            log_fn("LLM output did not contain a JSON object; using defaults")
         return _default_metadata()
 
     try:
         parsed = json.loads(json_text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        if log_fn:
+            log_fn(f"Failed to parse LLM JSON output: {exc}")
         return _default_metadata()
 
-    return normalize_metadata_schema(parsed)
+    normalized = normalize_metadata_schema(parsed)
+    return _finalize_confidence(normalized, document_text)
 
 
 if __name__ == "__main__":
