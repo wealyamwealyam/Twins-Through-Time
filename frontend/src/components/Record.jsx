@@ -8,7 +8,6 @@ export default function Record({
     traits = [],
     onClick,
   }) {
-    console.log("Record imageSrc:", imageSrc, typeof imageSrc);
     return (
       <div
         onClick={onClick}

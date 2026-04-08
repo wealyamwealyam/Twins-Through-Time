@@ -6,6 +6,7 @@ import Footer from "./components/Footer";
 import { Home } from "./pages/Home";
 import Upload from "./pages/Upload";
 import History from "./pages/History";
+import HistoryFolder from "./pages/HistoryFolder";
 import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -29,6 +30,7 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/history" element={<History />} />
+            <Route path="/history/:jobId" element={<HistoryFolder />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />

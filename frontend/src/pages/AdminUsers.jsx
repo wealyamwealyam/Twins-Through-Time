@@ -1,79 +1,119 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import AdminSectionNav from "../components/AdminSectionNav";
-
-const seedUsers = [
-  {
-    id: "USR-201",
-    username: "admin_jordan",
-    email: "jordan@example.edu",
-    accountType: "admin",
-    isActive: true,
-    lastSeen: "2 hours ago",
-  },
-  {
-    id: "USR-202",
-    username: "emily_review",
-    email: "emily@example.edu",
-    accountType: "contributor",
-    isActive: true,
-    lastSeen: "Today",
-  },
-  {
-    id: "USR-203",
-    username: "tom_archive",
-    email: "tom@example.edu",
-    accountType: "community_member",
-    isActive: false,
-    lastSeen: "8 days ago",
-  },
-  {
-    id: "USR-204",
-    username: "nina_ops",
-    email: "nina@example.edu",
-    accountType: "admin",
-    isActive: true,
-    lastSeen: "Yesterday",
-  },
-  {
-    id: "USR-205",
-    username: "sam_history",
-    email: "sam@example.edu",
-    accountType: "contributor",
-    isActive: true,
-    lastSeen: "5 minutes ago",
-  },
-];
+import { apiRequest } from "../utils/apiClient";
 
 export default function AdminUsers() {
-  const [users, setUsers] = useState(seedUsers);
+  const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [isLoading, setIsLoading] = useState(true);
+  const [message, setMessage] = useState("");
+  const [total, setTotal] = useState(0);
 
-  const filteredUsers = useMemo(() => {
-    return users.filter((user) => {
-      const matchesSearch =
-        search.trim() === "" ||
-        user.username.toLowerCase().includes(search.toLowerCase()) ||
-        user.email.toLowerCase().includes(search.toLowerCase());
-      const matchesRole =
-        roleFilter === "all" || user.accountType === roleFilter;
-      const matchesStatus =
-        statusFilter === "all" ||
-        (statusFilter === "active" && user.isActive) ||
-        (statusFilter === "inactive" && !user.isActive);
+  useEffect(() => {
+    let cancelled = false;
 
-      return matchesSearch && matchesRole && matchesStatus;
-    });
-  }, [users, search, roleFilter, statusFilter]);
+    async function loadUsers() {
+      setIsLoading(true);
+      setMessage("");
 
-  function toggleActive(id) {
-    setUsers((current) =>
-      current.map((user) =>
-        user.id === id ? { ...user, isActive: !user.isActive } : user
-      )
-    );
+      try {
+        const params = new URLSearchParams({ limit: "100" });
+
+        if (roleFilter !== "all") {
+          params.set("accountType", roleFilter);
+        }
+
+        if (statusFilter !== "all") {
+          params.set("isActive", statusFilter === "active" ? "true" : "false");
+        }
+
+        if (search.trim()) {
+          params.set("search", search.trim());
+        }
+
+        const result = await apiRequest(`/admin/users?${params.toString()}`);
+
+        if (!cancelled) {
+          setUsers(result?.data || []);
+          setTotal(result?.total || 0);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setUsers([]);
+          setTotal(0);
+          setMessage(error?.message || "Unable to load admin users.");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadUsers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [roleFilter, statusFilter, search]);
+
+  async function deactivateUser(id) {
+    setMessage("");
+
+    try {
+      const result = await apiRequest(`/admin/users/${id}/deactivate`, {
+        method: "PATCH",
+      });
+
+      setUsers((current) =>
+        current.map((user) =>
+          user.id === id ? { ...user, isActive: result.isActive } : user
+        )
+      );
+      setMessage("User deactivated.");
+    } catch (error) {
+      setMessage(error?.message || "Unable to deactivate user.");
+    }
+  }
+
+  async function reactivateUser(id) {
+    setMessage("");
+
+    try {
+      const result = await apiRequest(`/admin/users/${id}/reactivate`, {
+        method: "PATCH",
+      });
+
+      setUsers((current) =>
+        current.map((user) =>
+          user.id === id ? { ...user, isActive: result.isActive } : user
+        )
+      );
+      setMessage("User reactivated.");
+    } catch (error) {
+      setMessage(error?.message || "Unable to reactivate user.");
+    }
+  }
+
+  async function updateRole(id, accountType) {
+    setMessage("");
+
+    try {
+      const updated = await apiRequest(`/account/users/${id}/role`, {
+        method: "PATCH",
+        body: JSON.stringify({ accountType }),
+      });
+
+      setUsers((current) =>
+        current.map((user) => (user.id === id ? { ...user, ...updated } : user))
+      );
+      setMessage("User role updated.");
+    } catch (error) {
+      setMessage(error?.message || "Unable to update user role.");
+    }
   }
 
   return (
@@ -83,8 +123,8 @@ export default function AdminUsers() {
           User management
         </h1>
         <p className="mt-3 max-w-3xl text-base text-gray-600">
-          Prototype of the planned admin user directory. Filters and actions here
-          mirror the API shape in the project docs.
+          Manage real backend users, filter by role/status, update roles, and
+          deactivate accounts.
         </p>
       </section>
 
@@ -93,6 +133,12 @@ export default function AdminUsers() {
       </div>
 
       <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        {message ? (
+          <div className="mb-5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+            {message}
+          </div>
+        ) : null}
+
         <div className="grid gap-4 md:grid-cols-4">
           <label className="md:col-span-2">
             <div className="text-sm font-semibold text-gray-900">Search</div>
@@ -132,6 +178,10 @@ export default function AdminUsers() {
           </label>
         </div>
 
+        <div className="mt-5 text-sm text-gray-500">
+          {isLoading ? "Loading users..." : `${total} backend user${total === 1 ? "" : "s"} found`}
+        </div>
+
         <div className="mt-6 overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-gray-200 text-gray-500">
@@ -139,21 +189,36 @@ export default function AdminUsers() {
                 <th className="pb-3 font-semibold">User</th>
                 <th className="pb-3 font-semibold">Role</th>
                 <th className="pb-3 font-semibold">Status</th>
-                <th className="pb-3 font-semibold">Last seen</th>
+                <th className="pb-3 font-semibold">Updated</th>
                 <th className="pb-3 font-semibold">Action</th>
               </tr>
             </thead>
             <tbody>
-              {filteredUsers.map((user) => (
+              {!isLoading && users.length === 0 ? (
+                <tr>
+                  <td className="py-8 text-center text-sm text-gray-500" colSpan={5}>
+                    No users found.
+                  </td>
+                </tr>
+              ) : null}
+
+              {users.map((user) => (
                 <tr key={user.id} className="border-b border-gray-100 last:border-b-0">
                   <td className="py-4">
                     <div className="font-semibold text-gray-900">{user.username}</div>
                     <div className="text-xs text-gray-500">{user.email}</div>
+                    <div className="text-xs text-gray-400">ID {user.id}</div>
                   </td>
                   <td className="py-4">
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">
-                      {formatRole(user.accountType)}
-                    </span>
+                    <select
+                      value={user.accountType}
+                      onChange={(e) => updateRole(user.id, e.target.value)}
+                      className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-900/10"
+                    >
+                      <option value="community_member">Community member</option>
+                      <option value="contributor">Contributor</option>
+                      <option value="admin">Admin</option>
+                    </select>
                   </td>
                   <td className="py-4">
                     <span
@@ -167,11 +232,15 @@ export default function AdminUsers() {
                       {user.isActive ? "Active" : "Inactive"}
                     </span>
                   </td>
-                  <td className="py-4 text-gray-700">{user.lastSeen}</td>
+                  <td className="py-4 text-gray-700">
+                    {formatDate(user.updatedAt || user.createdAt)}
+                  </td>
                   <td className="py-4">
                     <button
                       type="button"
-                      onClick={() => toggleActive(user.id)}
+                      onClick={() =>
+                        user.isActive ? deactivateUser(user.id) : reactivateUser(user.id)
+                      }
                       className={[
                         "rounded-xl px-4 py-2 text-xs font-semibold transition",
                         user.isActive
@@ -192,10 +261,14 @@ export default function AdminUsers() {
   );
 }
 
-function formatRole(role) {
-  if (role === "community_member") {
-    return "Community member";
+function formatDate(iso) {
+  if (!iso) {
+    return "Unknown";
   }
 
-  return role.charAt(0).toUpperCase() + role.slice(1);
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }

@@ -1,13 +1,9 @@
 import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import PropTypes from "prop-types";
 
 import AdminSectionNav from "../components/AdminSectionNav";
-
-const stats = [
-  { label: "Total users", value: "120", note: "Matches planned `/admin/dashboard/stats` payload" },
-  { label: "Scrape jobs", value: "340", note: "Includes completed and queued work" },
-  { label: "Pending requests", value: "14", note: "Waiting for admin review" },
-  { label: "Onboarded photos", value: "3,210", note: "Already sent to Civil War Sleuth" },
-];
+import { apiRequest } from "../utils/apiClient";
 
 const reviewQueue = [
   {
@@ -43,6 +39,57 @@ const recentAdminActions = [
 ];
 
 export default function AdminDashboard() {
+  const [stats, setStats] = useState(null);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStats() {
+      setMessage("");
+
+      try {
+        const result = await apiRequest("/admin/dashboard/stats");
+        if (!cancelled) {
+          setStats(result);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setMessage(error?.message || "Unable to load admin dashboard stats.");
+        }
+      }
+    }
+
+    loadStats();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const statCards = [
+    {
+      label: "Total users",
+      value: stats?.totalUsers ?? "-",
+      note: "Current backend accounts",
+    },
+    {
+      label: "Scrape jobs",
+      value: stats?.totalScrapeJobs ?? "-",
+      note: "Total scrape jobs in the database",
+    },
+    {
+      label: "Pending requests",
+      value: stats?.pendingRequests ?? "-",
+      note: "Onboarding requests under review",
+    },
+    {
+      label: "Onboarded photos",
+      value: stats?.onboardedPhotos ?? "-",
+      note: "Photos in onboarded requests",
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-6xl">
       <section className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
@@ -84,8 +131,14 @@ export default function AdminDashboard() {
         <AdminSectionNav />
       </div>
 
+      {message ? (
+        <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 text-sm text-gray-700 shadow-sm">
+          {message}
+        </div>
+      ) : null}
+
       <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => (
+        {statCards.map((stat) => (
           <div key={stat.label} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
             <div className="text-sm font-semibold text-gray-600">{stat.label}</div>
             <div className="mt-2 text-3xl font-bold tracking-tight text-gray-900">{stat.value}</div>
@@ -175,6 +228,12 @@ function QuickAction({ to, title, desc }) {
   );
 }
 
+QuickAction.propTypes = {
+  to: PropTypes.string.isRequired,
+  title: PropTypes.string.isRequired,
+  desc: PropTypes.string.isRequired,
+};
+
 function StatusPill({ status }) {
   const tone =
     status === "Pending"
@@ -187,3 +246,7 @@ function StatusPill({ status }) {
     </span>
   );
 }
+
+StatusPill.propTypes = {
+  status: PropTypes.string.isRequired,
+};

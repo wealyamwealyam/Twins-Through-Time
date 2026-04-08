@@ -1,5 +1,8 @@
-
 import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import PropTypes from "prop-types";
+
+import { apiRequest, getBackendSession } from "../utils/apiClient";
 
 export function Home() {
   const steps = [
@@ -8,31 +11,95 @@ export function Home() {
       desc: "Add a Civil War photo page URL on the Upload page.",
     },
     {
-      title: "Scrape images + metadata",
-      desc: "Backend collects image URLs and metadata fields for review.",
+      title: "Scrape images and metadata",
+      desc: "The backend creates scrape jobs and photo records.",
     },
     {
-      title: "Human-in-the-loop verification",
-      desc: "Flag false positives and confirm metadata accuracy.",
+      title: "Review results",
+      desc: "Open completed runs and correct metadata before approval.",
     },
     {
-      title: "Review & archive",
-      desc: "Reopen past runs, track decisions, and export later (coming soon).",
+      title: "Track history",
+      desc: "Browse scraped photos and reopen metadata review later.",
     },
   ];
 
-  // Placeholder data (wire to backend later)
-  const systemStatus = {
-    scraper: { label: "Mock", value: "Online" },
-    queue: { label: "Mock", value: "0 running • 0 pending" },
-    lastRun: { label: "Mock", value: "—" },
-  };
+  const [health, setHealth] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [photoCount, setPhotoCount] = useState(0);
+  const [message, setMessage] = useState("");
+  const hasBackendSession = Boolean(getBackendSession()?.token);
 
-  const recentRuns = []; // empty-state for now
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHomeData() {
+      try {
+        const healthData = await apiRequest("/health", { skipAuth: true });
+        if (!cancelled) {
+          setHealth(healthData);
+        }
+
+        if (!getBackendSession()?.token) return;
+
+        const [jobsData, photosData] = await Promise.all([
+          apiRequest("/scrape-jobs?limit=5"),
+          apiRequest("/photos?limit=1"),
+        ]);
+
+        if (!cancelled) {
+          setRuns(jobsData?.data || []);
+          setPhotoCount(photosData?.total || 0);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setMessage(error?.message || "Unable to load backend status.");
+        }
+      }
+    }
+
+    loadHomeData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const systemStatus = useMemo(() => {
+    const running = runs.filter((run) => run.status === "running").length;
+    const queued = runs.filter((run) => run.status === "queued").length;
+    const lastCompleted = runs.find((run) => run.status === "completed");
+
+    return {
+      scraper: {
+        label: health?.status === "ok" ? "Live" : "Offline",
+        value: health?.status === "ok" ? "Online" : "Unavailable",
+      },
+      queue: {
+        label: hasBackendSession ? "Backend" : "Sign in",
+        value: hasBackendSession ? `${running} running | ${queued} queued` : "Sign in to load queue",
+      },
+      lastRun: {
+        label: hasBackendSession ? "Backend" : "Sign in",
+        value: lastCompleted
+          ? new Date(lastCompleted.completedAt || lastCompleted.updatedAt).toLocaleString()
+          : "No completed runs",
+      },
+    };
+  }, [health, hasBackendSession, runs]);
+
+  const recentRuns = runs.map((run) => ({
+    id: run.id,
+    title: run.url,
+    date: new Date(run.createdAt).toLocaleString(),
+    source: new URL(run.url).hostname,
+    imagesFound: run.photoCount ?? 0,
+    flagged: 0,
+    status: run.status,
+  }));
 
   return (
     <div className="max-w-6xl mx-auto">
-      {/* HERO */}
       <section className="rounded-2xl bg-white shadow-sm border border-gray-200 p-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div className="max-w-2xl">
@@ -40,8 +107,8 @@ export function Home() {
               Twins Through Time
             </h1>
             <p className="mt-3 text-gray-600 text-base md:text-lg">
-              Scrape Civil War photo pages, verify results with a human-in-the-loop,
-              and review metadata for accuracy.
+              Scrape Civil War photo pages, verify results with a human reviewer,
+              and keep corrected metadata connected to the backend.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -56,16 +123,15 @@ export function Home() {
                 to="/history"
                 className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-gray-900 bg-gray-100 hover:bg-gray-200 transition"
               >
-                View past runs
+                View scraped photos
               </Link>
             </div>
 
             <div className="mt-4 text-xs text-gray-500">
-              Login & roles coming soon • This sprint focuses on the interface & workflow
+              {hasBackendSession ? `${photoCount} scraped photos available for review` : "Sign in to load your scrape activity"}
             </div>
           </div>
 
-          {/* MINI STATUS */}
           <div className="w-full md:w-[360px] rounded-2xl border border-gray-200 bg-gray-50 p-5">
             <h2 className="text-sm font-semibold text-gray-900">Project status</h2>
 
@@ -88,47 +154,44 @@ export function Home() {
             </div>
 
             <div className="mt-4 text-xs text-gray-500">
-              These values are placeholders for now and will be connected to backend health endpoints.
+              {message || "Status comes from the backend health and scrape job APIs."}
             </div>
           </div>
         </div>
       </section>
 
-      {/* HOW IT WORKS */}
       <section className="mt-8">
         <div className="flex items-end justify-between">
           <h2 className="text-lg font-semibold text-gray-900">How it works</h2>
           <Link to="/upload" className="text-sm font-medium text-gray-900 hover:underline">
-            Go to Upload →
+            Go to Upload -&gt;
           </Link>
         </div>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {steps.map((s, idx) => (
+          {steps.map((step, idx) => (
             <div
-              key={s.title}
+              key={step.title}
               className="rounded-2xl bg-white border border-gray-200 shadow-sm p-5"
             >
               <div className="flex items-center gap-2">
                 <div className="h-7 w-7 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-bold">
                   {idx + 1}
                 </div>
-                <h3 className="text-sm font-semibold text-gray-900">{s.title}</h3>
+                <h3 className="text-sm font-semibold text-gray-900">{step.title}</h3>
               </div>
-              <p className="mt-3 text-sm text-gray-600">{s.desc}</p>
+              <p className="mt-3 text-sm text-gray-600">{step.desc}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* MAIN GRID */}
       <section className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* RECENT ACTIVITY */}
         <div className="lg:col-span-2 rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">Recent activity</h2>
             <Link to="/history" className="text-sm font-medium text-gray-900 hover:underline">
-              See all →
+              See all -&gt;
             </Link>
           </div>
 
@@ -136,7 +199,7 @@ export function Home() {
             <div className="mt-6 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center">
               <p className="text-sm font-semibold text-gray-900">No runs yet</p>
               <p className="mt-2 text-sm text-gray-600">
-                Start by adding a link on the Upload page. Your recent runs will appear here.
+                Start by adding a link on the Upload page. Recent backend scrape jobs will appear here.
               </p>
               <div className="mt-5">
                 <Link
@@ -151,13 +214,13 @@ export function Home() {
             <div className="mt-4 divide-y divide-gray-100">
               {recentRuns.map((run) => (
                 <div key={run.id} className="py-4 flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900">{run.title}</div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-gray-900 truncate">{run.title}</div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {run.date} • {run.source}
+                      {run.date} | {run.source}
                     </div>
                     <div className="text-xs text-gray-600 mt-1">
-                      {run.imagesFound} images • {run.flagged} flagged
+                      {run.imagesFound} images | {run.flagged} flagged
                     </div>
                   </div>
                   <span className="text-xs font-semibold px-3 py-1 rounded-full bg-gray-100 text-gray-900">
@@ -169,7 +232,6 @@ export function Home() {
           )}
         </div>
 
-        {/* QUICK ACTIONS / CARDS */}
         <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
           <h2 className="text-lg font-semibold text-gray-900">Quick actions</h2>
 
@@ -181,31 +243,24 @@ export function Home() {
             />
             <QuickCard
               title="History"
-              desc="Review previous runs and decisions (wire up later)."
+              desc="Review scraped photos and update metadata."
               to="/history"
             />
             <QuickCard
               title="Profile"
-              desc="Login, roles, and permissions (coming soon)."
+              desc="Manage account details and role requests."
               to="/profile"
             />
           </div>
         </div>
       </section>
 
-      {/* TRUST / NOTES */}
       <section className="mt-8 mb-6 rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
         <h2 className="text-lg font-semibold text-gray-900">Key notes</h2>
         <ul className="mt-3 grid gap-2 text-sm text-gray-600 list-disc pl-5">
-          <li>
-            This interface supports human verification to reduce false positives and improve metadata confidence.
-          </li>
-          <li>
-            Source support will expand over time; initial rollout may prioritize a small set of known archive pages.
-          </li>
-          <li>
-            Export, tagging, reviewer roles, and user management are planned for upcoming sprints.
-          </li>
+          <li>Human review helps reduce false positives and improve metadata confidence.</li>
+          <li>Source support works best with static pages that expose direct image URLs.</li>
+          <li>Scraped photos and metadata review now load from the backend.</li>
         </ul>
       </section>
     </div>
@@ -226,6 +281,12 @@ function StatusRow({ title, label, value }) {
   );
 }
 
+StatusRow.propTypes = {
+  title: PropTypes.string.isRequired,
+  label: PropTypes.string.isRequired,
+  value: PropTypes.string.isRequired,
+};
+
 function QuickCard({ title, desc, to }) {
   return (
     <Link
@@ -238,9 +299,15 @@ function QuickCard({ title, desc, to }) {
           <div className="mt-1 text-sm text-gray-600">{desc}</div>
         </div>
         <div className="text-sm font-semibold text-gray-900 group-hover:translate-x-0.5 transition">
-          →
+          -&gt;
         </div>
       </div>
     </Link>
   );
 }
+
+QuickCard.propTypes = {
+  title: PropTypes.string.isRequired,
+  desc: PropTypes.string.isRequired,
+  to: PropTypes.string.isRequired,
+};

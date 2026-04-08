@@ -1,6 +1,11 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { clearBackendSession, getBackendSession } from "../utils/apiClient";
+import {
+  apiRequest,
+  clearBackendSession,
+  getBackendSession,
+  saveBackendSession,
+} from "../utils/apiClient";
 
 export default function Navbar() {
   const navigate = useNavigate();
@@ -13,7 +18,7 @@ export default function Navbar() {
   useEffect(() => {
     let mounted = true;
 
-    function loadAuth() {
+    async function loadAuth() {
       try {
         const backendSession = getBackendSession();
 
@@ -28,6 +33,35 @@ export default function Navbar() {
               role: backendSession.user.accountType,
             },
           });
+
+          try {
+            const profile = await apiRequest("/account/profile");
+            if (!mounted || !profile?.accountType) return;
+
+            const updatedSession = {
+              ...backendSession,
+              user: {
+                ...backendSession.user,
+                accountType: profile.accountType,
+              },
+            };
+
+            if (profile.accountType !== backendSession.user.accountType) {
+              saveBackendSession(updatedSession);
+            }
+
+            setAuth({
+              isAuthenticated: true,
+              user: updatedSession.user,
+              profile: {
+                display_name: profile.username || backendSession.user.username,
+                role: profile.accountType,
+              },
+            });
+          } catch {
+            // Keep the stored session if profile refresh fails.
+          }
+
           return;
         }
 
@@ -87,7 +121,8 @@ export default function Navbar() {
     auth.user?.email?.split("@")[0] ||
     "Profile";
 
-  const isAdmin = auth.profile?.role === "admin" || auth.user?.accountType === "admin";
+  const role = String(auth.user?.accountType || auth.profile?.role || "").trim().toLowerCase();
+  const isAdmin = role === "admin";
 
   return (
     <nav className="w-full bg-slate-700 text-white shadow-md">
@@ -119,9 +154,15 @@ export default function Navbar() {
             </Link>
 
             {isAdmin ? (
-              <Link to="/admin" className="hover:text-blue-300 transition">
-                Admin
-              </Link>
+              <>
+                <Link to="/admin" className="hover:text-blue-300 transition">
+                  Admin
+                </Link>
+
+                <Link to="/admin/onboarding" className="hover:text-blue-300 transition">
+                  Onboarding
+                </Link>
+              </>
             ) : null}
           </div>
 

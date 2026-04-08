@@ -32,12 +32,13 @@ export async function apiRequest(path, options = {}) {
     headers.set("Content-Type", "application/json");
   }
 
-  if (session?.token && !headers.has("Authorization")) {
+  if (!options.skipAuth && session?.token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${session.token}`);
   }
 
+  const { skipAuth, ...fetchOptions } = options;
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
+    ...fetchOptions,
     headers,
   });
 
@@ -48,7 +49,7 @@ export async function apiRequest(path, options = {}) {
   const body = await response.json().catch(() => null);
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (!skipAuth && response.status === 401) {
       clearBackendSession();
     }
 
