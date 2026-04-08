@@ -22,3 +22,27 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment variables — never commit secrets
+.env
+.env.local
+.env.production
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# Python
+scraping/__pycache__/
+scraping/*.pyc
+llm/__pycache__/
+llm/*.pyc
+*.pyc
+__pycache__/
+
+# Test artifacts
+backend/.test-writes-ids.json
+
+# Python virtual environment
+.venv/
+venv/
+
