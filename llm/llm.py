@@ -7,24 +7,46 @@ import torch
 import transformers
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load from llm/.env first, then fall back to project root .env
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_this_dir, ".env"))
+load_dotenv()  # fallback to cwd .env
 
 # get the current user's hugging face token from the .env file
 HF_TOKEN = os.getenv("HF_TOKEN")
 if HF_TOKEN is None:
     raise RuntimeError("HF_TOKEN not found. You need to create a .env file with your HF_TOKEN in it.")
 
-# Use Llama 3.2
-MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
+# Primary model: Llama 3.2 (gated — requires Meta license acceptance)
+# Fallback model: SmolLM2-1.7B-Instruct (ungated, same instruction format)
+_PRIMARY_MODEL   = "meta-llama/Llama-3.2-3B-Instruct"
+_FALLBACK_MODEL  = "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+MODEL_ID = os.getenv("LLM_MODEL_ID", _PRIMARY_MODEL)
 
-# create the pipeline with transformers. give it my hugging face token.
-pipeline = transformers.pipeline(
-    "text-generation",
-    model=MODEL_ID,
-    token=HF_TOKEN,
-    device_map="cpu",
-    torch_dtype=torch.float32,
-)
+def _load_pipeline():
+    """Try primary model; fall back to ungated model if gated access is denied."""
+    for model in [MODEL_ID, _FALLBACK_MODEL] if MODEL_ID == _PRIMARY_MODEL else [MODEL_ID]:
+        try:
+            print(f"[llm] Loading model: {model}")
+            p = transformers.pipeline(
+                "text-generation",
+                model=model,
+                token=HF_TOKEN,
+                device_map="cpu",
+                torch_dtype=torch.float32,
+            )
+            print(f"[llm] ✅ Loaded: {model}")
+            return p, model
+        except Exception as e:
+            if "gated" in str(e).lower() or "403" in str(e) or "401" in str(e):
+                print(f"[llm] ⚠️  {model} is gated / unauthorised — trying fallback.")
+                if model == _FALLBACK_MODEL:
+                    raise
+            else:
+                raise
+    raise RuntimeError("Could not load any LLM model.")
+
+pipeline, MODEL_ID = _load_pipeline()
 
 LogFn = Callable[[str], None]
 

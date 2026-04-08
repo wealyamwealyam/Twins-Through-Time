@@ -329,12 +329,10 @@ def save_record_folder(
     session_dir: Path,
     logger: LoggerLike,
     robots_enforcer: RobotsEnforcer | None = None,
+    api_client: Any | None = None,
 ) -> None:
     record_id = str(record.get("record_id") or "unknown")
     title = str(record.get("title") or "record")
-    folder_name = f"{record_id}_{safe_name(title, fallback='record')}"
-    record_folder = session_dir / folder_name
-    record_folder.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Normalizing metadata with LLM for record {record_id}")
     metadata = extract_metadata(
@@ -354,40 +352,84 @@ def save_record_folder(
     if not isinstance(image_groups, list):
         image_groups = []
 
-    images_saved = 0
-    for group_index, group in enumerate(image_groups, start=1):
-        if not isinstance(group, list):
-            continue
+    if api_client is not None:
+        # API mode: POST the best image URL for each group to the backend
+        tags: list[str] = []
+        if isinstance(metadata.get("Tags"), list):
+            tags = [str(t) for t in metadata["Tags"]]
+        elif isinstance(metadata.get("Tags"), str) and metadata["Tags"]:
+            tags = [t.strip() for t in metadata["Tags"].split(",") if t.strip()]
 
-        saved_this_group = False
-        for candidate in group:
-            if robots_enforcer is not None:
-                robots_enforcer(candidate, "image URL")
-            ext = Path(urlparse(candidate).path).suffix
-            if not ext and "/download" in urlparse(candidate).path.lower():
-                ext = ".jp2"
-            if not ext:
-                ext = ".jpg"
-            image_path = record_folder / f"image_{group_index:02d}{ext}"
-            if download_image(candidate, image_path):
-                images_saved += 1
-                saved_this_group = True
-                logger.info(f"Saved image for record {record_id} -> {image_path.name}")
+        # Pick the first (best) candidate from the first image group
+        best_image_url: str | None = None
+        for group in image_groups:
+            if isinstance(group, list) and group:
+                best_image_url = str(group[0])
                 break
 
-        if not saved_this_group:
-            logger.warn(f"Could not save image group {group_index} for record {record_id}")
-
-    if images_saved == 0:
-        logger.warn(f"No valid image downloaded for record {record_id}")
-    elif images_saved == 1:
-        logger.info(f"Saved 1 image for record {record_id}")
+        if best_image_url:
+            if robots_enforcer is not None:
+                robots_enforcer(best_image_url, "image URL")
+            photo_payload: dict[str, Any] = {
+                "imageUrl":    best_image_url,
+                "name":        metadata.get("Name") or metadata.get("Subject") or title or None,
+                "regiment":    metadata.get("Regiment") or None,
+                "age":         metadata.get("Age") or None,
+                "dateTaken":   metadata.get("Date") or metadata.get("DateTaken") or None,
+                "location":    metadata.get("Location") or None,
+                "photographer": metadata.get("Photographer") or None,
+                "collection":  metadata.get("Collection") or None,
+                "photoNotes":  json.dumps(other, ensure_ascii=False) if other else None,
+                "tags":        tags,
+                "license":     metadata.get("License") or None,
+            }
+            ok = api_client.post_photo(photo_payload)
+            if ok:
+                logger.info(f"Posted photo to API for record {record_id}: {best_image_url}")
+            else:
+                logger.warn(f"Failed to post photo to API for record {record_id}")
+        else:
+            logger.warn(f"No image candidate found for record {record_id}")
     else:
-        logger.info(f"Saved {images_saved} images for record {record_id}")
+        # File mode: write images + metadata to disk
+        folder_name = f"{record_id}_{safe_name(title, fallback='record')}"
+        record_folder = session_dir / folder_name
+        record_folder.mkdir(parents=True, exist_ok=True)
 
-    metadata_path = record_folder / "metadata.json"
-    metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
-    logger.info(f"Saved metadata for record {record_id} -> {metadata_path.name}")
+        images_saved = 0
+        for group_index, group in enumerate(image_groups, start=1):
+            if not isinstance(group, list):
+                continue
+
+            saved_this_group = False
+            for candidate in group:
+                if robots_enforcer is not None:
+                    robots_enforcer(candidate, "image URL")
+                ext = Path(urlparse(candidate).path).suffix
+                if not ext and "/download" in urlparse(candidate).path.lower():
+                    ext = ".jp2"
+                if not ext:
+                    ext = ".jpg"
+                image_path = record_folder / f"image_{group_index:02d}{ext}"
+                if download_image(candidate, image_path):
+                    images_saved += 1
+                    saved_this_group = True
+                    logger.info(f"Saved image for record {record_id} -> {image_path.name}")
+                    break
+
+            if not saved_this_group:
+                logger.warn(f"Could not save image group {group_index} for record {record_id}")
+
+        if images_saved == 0:
+            logger.warn(f"No valid image downloaded for record {record_id}")
+        elif images_saved == 1:
+            logger.info(f"Saved 1 image for record {record_id}")
+        else:
+            logger.info(f"Saved {images_saved} images for record {record_id}")
+
+        metadata_path = record_folder / "metadata.json"
+        metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.info(f"Saved metadata for record {record_id} -> {metadata_path.name}")
 
 
 def run_contentdm_collection(
@@ -398,6 +440,7 @@ def run_contentdm_collection(
     session_dir: Path,
     logger: LoggerLike,
     robots_enforcer: RobotsEnforcer | None = None,
+    api_client: Any | None = None,
 ) -> tuple[int, int]:
     success_count = 0
     fail_count = 0
@@ -423,7 +466,13 @@ def run_contentdm_collection(
             if robots_enforcer is not None:
                 robots_enforcer(link, "item URL")
             record = scrape_item(site_base, collection_alias, link)
-            save_record_folder(record, session_dir=session_dir, logger=logger, robots_enforcer=robots_enforcer)
+            save_record_folder(
+                record,
+                session_dir=session_dir,
+                logger=logger,
+                robots_enforcer=robots_enforcer,
+                api_client=api_client,
+            )
             success_count += 1
         except Exception as exc:
             fail_count += 1

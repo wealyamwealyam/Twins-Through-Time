@@ -6,12 +6,17 @@ Universal Civil War image scraper entrypoint.
 - If URL is CONTENTdm, uses contentdm_scraper.py flow.
 - Otherwise, uses generic HTML image extraction + LLM metadata extraction.
 
-Run:
-python .\scraper.py
+Interactive mode (no --job-id):
+    python scraper.py
+
+API/worker mode (called by the Node backend):
+    python scraper.py --job-id <uuid> --url <url> --limit <n> \\
+                      --api-url http://localhost:3000 --api-key <secret>
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -37,7 +42,70 @@ from contentdm_scraper import (  # noqa: E402
 )
 from scraping_js import get_best_html_for_non_contentdm  # noqa: E402
 
+try:
+    import requests as _requests
+    _REQUESTS_AVAILABLE = True
+except ImportError:
+    _REQUESTS_AVAILABLE = False
+
 OUTPUT_ROOT = Path(__file__).resolve().parent / "output"
+
+# ---------------------------------------------------------------------------
+# API client — used when scraper is launched in worker/API mode by the backend
+# ---------------------------------------------------------------------------
+
+class BackendApiClient:
+    """
+    Thin wrapper around `requests` for reporting back to the Node backend.
+
+    Methods return True on success and False (+ log) on failure so that a
+    single photo failure does not abort the whole job.
+    """
+
+    def __init__(self, job_id: str, api_url: str, api_key: str) -> None:
+        self.job_id  = job_id
+        self.base    = api_url.rstrip("/")
+        self.headers = {
+            "Content-Type":    "application/json",
+            "X-Worker-Secret": api_key,
+        }
+
+    def patch_job(self, status: str, error_message: str | None = None) -> bool:
+        if not _REQUESTS_AVAILABLE:
+            print(f"[api] requests not installed — skipping PATCH job status={status}")
+            return False
+        payload: dict[str, Any] = {"status": status}
+        if error_message:
+            payload["errorMessage"] = error_message
+        try:
+            resp = _requests.patch(
+                f"{self.base}/api/scrape-jobs/{self.job_id}",
+                json=payload,
+                headers=self.headers,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as exc:
+            print(f"[api] PATCH job failed: {exc}")
+            return False
+
+    def post_photo(self, photo_data: dict[str, Any]) -> bool:
+        if not _REQUESTS_AVAILABLE:
+            print("[api] requests not installed — skipping POST photo")
+            return False
+        try:
+            resp = _requests.post(
+                f"{self.base}/api/scrape-jobs/{self.job_id}/photos",
+                json=photo_data,
+                headers=self.headers,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as exc:
+            print(f"[api] POST photo failed: {exc}")
+            return False
 
 # Hard-reject obvious non-content images.
 REJECT_IMAGE_TOKENS = {
@@ -418,20 +486,9 @@ def save_generic_record(
     page_title: str,
     session_dir: Path,
     logger: SessionLogger,
+    api_client: BackendApiClient | None = None,
 ) -> bool:
-    base_name = alt_text.strip() or Path(urlparse(image_url).path).stem or f"image_{record_index}"
-    record_folder = session_dir / f"{record_index:03d}_{safe_name(base_name, fallback='image')}"
-    record_folder.mkdir(parents=True, exist_ok=True)
-
     enforce_robots(image_url, "image URL", logger=logger)
-
-    ext = Path(urlparse(image_url).path).suffix or ".jpg"
-    image_path = record_folder / f"image{ext}"
-    image_ok = download_image(image_url, image_path)
-    if image_ok:
-        logger.info(f"Saved image -> {image_path.name}")
-    else:
-        logger.warn(f"Could not download image from {image_url}")
 
     llm_document = (
         f"Source Page URL: {page_url}\n"
@@ -457,14 +514,61 @@ def save_generic_record(
         other.setdefault("Image Alt Text", alt_text)
     metadata["Other"] = other
 
-    metadata_path = record_folder / "metadata.json"
-    metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
-    logger.info(f"Saved metadata -> {metadata_path.name}")
+    if api_client is not None:
+        # API mode: POST photo to backend
+        tags: list[str] = []
+        if isinstance(metadata.get("Tags"), list):
+            tags = [str(t) for t in metadata["Tags"]]
+        elif isinstance(metadata.get("Tags"), str) and metadata["Tags"]:
+            tags = [t.strip() for t in metadata["Tags"].split(",") if t.strip()]
 
-    return image_ok
+        photo_payload: dict[str, Any] = {
+            "imageUrl":    image_url,
+            "name":        metadata.get("Name") or metadata.get("Subject") or None,
+            "regiment":    metadata.get("Regiment") or None,
+            "age":         metadata.get("Age") or None,
+            "dateTaken":   metadata.get("Date") or metadata.get("DateTaken") or None,
+            "location":    metadata.get("Location") or None,
+            "photographer": metadata.get("Photographer") or None,
+            "collection":  metadata.get("Collection") or None,
+            "photoNotes":  json.dumps(other, ensure_ascii=False) if other else None,
+            "tags":        tags,
+            "license":     metadata.get("License") or None,
+        }
+        ok = api_client.post_photo(photo_payload)
+        if ok:
+            logger.info(f"Posted photo to API: {image_url}")
+        else:
+            logger.warn(f"Failed to post photo to API: {image_url}")
+        return ok
+    else:
+        # File mode: write image + metadata to disk
+        base_name = alt_text.strip() or Path(urlparse(image_url).path).stem or f"image_{record_index}"
+        record_folder = session_dir / f"{record_index:03d}_{safe_name(base_name, fallback='image')}"
+        record_folder.mkdir(parents=True, exist_ok=True)
+
+        ext = Path(urlparse(image_url).path).suffix or ".jpg"
+        image_path = record_folder / f"image{ext}"
+        image_ok = download_image(image_url, image_path)
+        if image_ok:
+            logger.info(f"Saved image -> {image_path.name}")
+        else:
+            logger.warn(f"Could not download image from {image_url}")
+
+        metadata_path = record_folder / "metadata.json"
+        metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.info(f"Saved metadata -> {metadata_path.name}")
+
+        return image_ok
 
 
-def run_generic_site(url: str, limit: int, session_dir: Path, logger: SessionLogger) -> tuple[int, int]:
+def run_generic_site(
+    url: str,
+    limit: int,
+    session_dir: Path,
+    logger: SessionLogger,
+    api_client: BackendApiClient | None = None,
+) -> tuple[int, int]:
     enforce_robots(url, "submitted URL", logger=logger)
 
     logger.info(f"Fetching HTML: {url}")
@@ -533,6 +637,7 @@ def run_generic_site(url: str, limit: int, session_dir: Path, logger: SessionLog
                 page_title=page_title,
                 session_dir=session_dir,
                 logger=logger,
+                api_client=api_client,
             )
             if saved:
                 success_count += 1
@@ -585,8 +690,52 @@ def prompt_url_and_limit() -> tuple[str, int, bool, tuple[str, str, str] | None]
             return raw_url, limit, is_contentdm, contentdm_config
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Civil War image scraper — interactive or API worker mode.",
+    )
+    parser.add_argument("--job-id",  default=None, help="Scrape job UUID (worker mode)")
+    parser.add_argument("--url",     default=None, help="URL to scrape (worker mode)")
+    parser.add_argument("--limit",   type=int, default=None, help="Max photos (worker mode)")
+    parser.add_argument("--api-url", default="http://localhost:3000", help="Backend API base URL")
+    parser.add_argument("--api-key", default="", help="Worker secret (X-Worker-Secret)")
+    return parser.parse_args()
+
+
 def main() -> None:
-    submitted_url, limit, is_contentdm, contentdm_config = prompt_url_and_limit()
+    args = parse_args()
+
+    # Determine mode: worker (all three required args present) vs interactive
+    is_worker_mode = bool(args.job_id and args.url and args.limit)
+
+    api_client: BackendApiClient | None = None
+    if is_worker_mode:
+        api_client = BackendApiClient(
+            job_id=args.job_id,
+            api_url=args.api_url,
+            api_key=args.api_key,
+        )
+        submitted_url = args.url
+        limit = args.limit
+        is_contentdm = is_contentdm_url(submitted_url)
+        contentdm_config: tuple[str, str, str] | None = None
+        if is_contentdm:
+            try:
+                canonical_url, site_base, collection_alias = parse_collection_url(submitted_url)
+                enforce_robots(canonical_url, "submitted CONTENTdm URL")
+                verify_collection(site_base, collection_alias)
+                contentdm_config = (canonical_url, site_base, collection_alias)
+            except Exception as exc:
+                api_client.patch_job("failed", error_message=str(exc))
+                raise
+        else:
+            try:
+                enforce_robots(submitted_url, "submitted non-CONTENTdm URL")
+            except Exception as exc:
+                api_client.patch_job("failed", error_message=str(exc))
+                raise
+    else:
+        submitted_url, limit, is_contentdm, contentdm_config = prompt_url_and_limit()
 
     session_dir = create_session_folder()
     logger = SessionLogger(session_dir / "session.log")
@@ -595,11 +744,17 @@ def main() -> None:
     logger.info(f"Output folder: {session_dir}")
     logger.info(f"Submitted URL: {submitted_url}")
     logger.info(f"Requested limit: {limit}")
+    if is_worker_mode:
+        logger.info(f"Worker mode: job_id={args.job_id}")
 
     success_count = 0
     fail_count = 0
 
     try:
+        # Signal to the backend that work has started
+        if api_client:
+            api_client.patch_job("running")
+
         if is_contentdm and contentdm_config is not None:
             canonical_url, site_base, collection_alias = contentdm_config
             logger.info("Mode: CONTENTdm")
@@ -611,6 +766,7 @@ def main() -> None:
                 session_dir=session_dir,
                 logger=logger,
                 robots_enforcer=lambda url, ctx: enforce_robots(url, ctx, logger=logger),
+                api_client=api_client,
             )
         else:
             logger.info("Mode: Generic HTML image scraping")
@@ -619,10 +775,23 @@ def main() -> None:
                 limit=limit,
                 session_dir=session_dir,
                 logger=logger,
+                api_client=api_client,
             )
 
         logger.info(f"Run complete. Success: {success_count}, Failed: {fail_count}")
-        logger.info(f"Session artifacts written to: {session_dir}")
+        if not is_worker_mode:
+            logger.info(f"Session artifacts written to: {session_dir}")
+
+        # Signal completion to backend
+        if api_client:
+            final_status = "completed" if fail_count == 0 or success_count > 0 else "failed"
+            api_client.patch_job(final_status)
+
+    except Exception as exc:
+        logger.error(f"Fatal error: {exc}")
+        if api_client:
+            api_client.patch_job("failed", error_message=str(exc))
+        raise
     finally:
         logger.close()
 

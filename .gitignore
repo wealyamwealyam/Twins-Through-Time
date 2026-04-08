@@ -42,3 +42,7 @@ __pycache__/
 # Test artifacts
 backend/.test-writes-ids.json
 
+# Python virtual environment
+.venv/
+venv/
+
