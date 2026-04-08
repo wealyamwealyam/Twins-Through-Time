@@ -47,11 +47,15 @@ create table if not exists scrape_jobs (
                check (status in ('queued', 'running', 'completed', 'failed', 'cancelled')),
   submitted_by uuid        not null references users(id) on delete cascade,
   photo_count  int         not null default 0,
+  error_message text,
   started_at   timestamptz,
   completed_at timestamptz,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
+
+alter table scrape_jobs
+  add column if not exists error_message text;
 
 -- ─── Photos ──────────────────────────────────────────────────────────────────
 create table if not exists photos (

@@ -16,6 +16,7 @@ import {
   findScrapeJobs,
   updateScrapeJob,
 } from '../models/scrapeJobModel.js';
+import { processScrapeJob } from '../utils/scrapeProcessor.js';
 
 const errBody = (code, message, details = null) => ({ error: { code, message, details } });
 
@@ -48,6 +49,19 @@ export const submitScrapeJob = async (req, res) => {
     maxPhotos:   max,
     submittedBy: req.user.id,
   });
+
+  setTimeout(() => {
+    processScrapeJob(job.id).catch((err) => {
+      console.error(`[scrape-jobs] failed to process job ${job.id}:`, err);
+      updateScrapeJob(job.id, {
+        status: 'failed',
+        errorMessage: err?.message || 'Scrape failed.',
+        completedAt: new Date().toISOString(),
+      }).catch((updateErr) => {
+        console.error(`[scrape-jobs] failed to mark job ${job.id} failed:`, updateErr);
+      });
+    });
+  }, 0);
 
   return res.status(201).json(job);
 };

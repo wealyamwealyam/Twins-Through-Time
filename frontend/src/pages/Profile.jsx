@@ -1,118 +1,240 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import { useAuth } from "../hooks/useAuth";
-import { getMe, updateMe } from "../services/accountService";
+import PropTypes from "prop-types";
+
+import { clearBackendSession, apiRequest, getBackendSession } from "../utils/apiClient";
+
+const defaultProfile = {
+  id: null,
+  username: "",
+  email: "",
+  firstName: "",
+  lastName: "",
+  age: "",
+  gender: "",
+  accountType: "community_member",
+};
 
 export default function Profile() {
-  const { user, loading: authLoading } = useAuth();
-
-  const [profile, setProfile] = useState({
-    displayName: "",
-    affiliation: "",
-    bio: "",
-    preferences: {
-      defaultLanding: "upload",
-      notifications: true,
-    },
-  });
+  const navigate = useNavigate();
+  const [profile, setProfile] = useState(defaultProfile);
+  const [authState, setAuthState] = useState("loading");
   const [isEditing, setIsEditing] = useState(false);
-  const [loadError, setLoadError] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState(null);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [message, setMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [changeRequests, setChangeRequests] = useState([]);
+  const [roleRequest, setRoleRequest] = useState({
+    requestingAccount: "contributor",
+    reasonMessage: "",
+  });
+  const [isRequestingRole, setIsRequestingRole] = useState(false);
 
-  // Load profile from API when user is available
   useEffect(() => {
-    if (!user) return;
-    getMe()
-      .then((data) => {
+    let cancelled = false;
+
+    async function loadProfile() {
+      setAuthState("loading");
+      setMessage("");
+
+      if (!getBackendSession()?.token) {
+        setProfile(defaultProfile);
+        setAuthState("guest");
+        return;
+      }
+
+      try {
+        const [profileData, requestsData] = await Promise.all([
+          apiRequest("/account/profile"),
+          apiRequest("/account-change-requests/me").catch(() => []),
+        ]);
+
+        if (cancelled) return;
+
         setProfile({
-          displayName: [data.firstName, data.lastName].filter(Boolean).join(" ") || data.username || "",
-          affiliation: data.affiliation || "",
-          bio: data.bio || "",
-          preferences: {
-            defaultLanding: data.preferences?.defaultLanding ?? "upload",
-            notifications: data.preferences?.notifications ?? true,
-          },
+          ...defaultProfile,
+          ...profileData,
+          age: profileData?.age ?? "",
+          gender: profileData?.gender ?? "",
         });
-      })
-      .catch((err) => setLoadError(err.message || "Failed to load profile."));
-  }, [user]);
+        setChangeRequests(Array.isArray(requestsData) ? requestsData : []);
+        setAuthState("authenticated");
+      } catch (error) {
+        if (!cancelled) {
+          setProfile(defaultProfile);
+          setAuthState("guest");
+          setMessage(error?.message || "Unable to load profile.");
+        }
+      }
+    }
+
+    loadProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const displayName = `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || profile.username || "User";
 
   const initials = useMemo(() => {
-    const parts = (profile.displayName || "")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
+    const parts = displayName.trim().split(/\s+/).filter(Boolean);
     const a = parts[0]?.[0] || "T";
     const b = parts[1]?.[0] || parts[0]?.[1] || "T";
     return (a + b).toUpperCase();
-  }, [profile.displayName]);
+  }, [displayName]);
 
-  const systemStatus = {
-    account: {
-      label: user?.accountType ?? "—",
-      value: user?.isActive ? "Active" : user ? "Inactive" : "—",
-    },
-    storage: { label: "Enabled", value: "Supabase" },
-    lastSync: { label: "Live", value: user ? "Connected" : "—" },
-  };
+  const availableRoleRequests = useMemo(() => {
+    if (profile.accountType === "community_member") return ["contributor", "admin"];
+    if (profile.accountType === "contributor") return ["admin"];
+    return [];
+  }, [profile.accountType]);
+
+  useEffect(() => {
+    if (
+      availableRoleRequests.length > 0 &&
+      !availableRoleRequests.includes(roleRequest.requestingAccount)
+    ) {
+      setRoleRequest((prev) => ({
+        ...prev,
+        requestingAccount: availableRoleRequests[0],
+      }));
+    }
+  }, [availableRoleRequests, roleRequest.requestingAccount]);
 
   function updateField(key, value) {
-    setProfile((p) => ({ ...p, [key]: value }));
+    setProfile((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
   }
 
-  function updatePref(key, value) {
-    setProfile((p) => ({ ...p, preferences: { ...p.preferences, [key]: value } }));
-  }
+  async function saveProfile() {
+    if (authState !== "authenticated" || !profile.id) {
+      setMessage("Please sign in to save profile changes.");
+      return;
+    }
 
-  async function handleSave() {
-    setSaving(true);
-    setSaveError(null);
-    setSaveSuccess(false);
+    setIsSaving(true);
+    setMessage("");
+
     try {
-      const [firstName, ...rest] = profile.displayName.trim().split(/\s+/);
-      await updateMe({
-        firstName: firstName || "",
-        lastName: rest.join(" ") || "",
-        affiliation: profile.affiliation,
-        bio: profile.bio,
-        preferences: profile.preferences,
+      const updates = {
+        username: profile.username,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+      };
+
+      if (profile.age !== "") {
+        updates.age = Number(profile.age);
+      }
+
+      if (profile.gender) {
+        updates.gender = profile.gender;
+      }
+
+      const updated = await apiRequest("/account/profile", {
+        method: "PATCH",
+        body: JSON.stringify(updates),
       });
-      setSaveSuccess(true);
+
+      setProfile({
+        ...defaultProfile,
+        ...updated,
+        age: updated?.age ?? "",
+        gender: updated?.gender ?? "",
+      });
       setIsEditing(false);
-    } catch (err) {
-      setSaveError(err.message || "Failed to save profile.");
+      setMessage("Profile updated successfully.");
+    } catch (error) {
+      setMessage(error?.message || "Something went wrong while saving your profile.");
     } finally {
-      setSaving(false);
+      setIsSaving(false);
     }
   }
 
-  if (authLoading) {
+  async function submitRoleRequest(e) {
+    e.preventDefault();
+
+    if (!roleRequest.reasonMessage.trim()) {
+      setMessage("Please add a reason for the account change request.");
+      return;
+    }
+
+    setIsRequestingRole(true);
+    setMessage("");
+
+    try {
+      const request = await apiRequest("/account-change-requests", {
+        method: "POST",
+        body: JSON.stringify({
+          requestingAccount: roleRequest.requestingAccount,
+          reasonMessage: roleRequest.reasonMessage,
+        }),
+      });
+
+      setChangeRequests((prev) => [request, ...prev]);
+      setRoleRequest((prev) => ({ ...prev, reasonMessage: "" }));
+      setMessage("Account change request submitted.");
+    } catch (error) {
+      setMessage(error?.message || "Unable to submit account change request.");
+    } finally {
+      setIsRequestingRole(false);
+    }
+  }
+
+  function handleSignOut() {
+    clearBackendSession();
+    navigate("/login");
+  }
+
+  if (authState === "loading") {
     return (
-      <div className="max-w-6xl mx-auto py-12 text-center text-gray-500">
-        Loading…
+      <div className="max-w-6xl mx-auto">
+        <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-8 text-left">
+          Loading profile...
+        </div>
       </div>
     );
   }
 
-  if (!user) {
+  if (authState === "guest") {
     return (
-      <div className="max-w-6xl mx-auto py-12 text-center">
-        <p className="text-gray-600">Please <Link to="/login" className="underline font-semibold">log in</Link> to view your profile.</p>
+      <div className="max-w-6xl mx-auto">
+        <section className="rounded-2xl bg-white shadow-sm border border-gray-200 p-8">
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-gray-900">
+            Profile
+          </h1>
+          <p className="mt-3 text-gray-600 text-base md:text-lg">
+            Sign in to view and edit your backend profile.
+          </p>
+
+          {message ? (
+            <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+              {message}
+            </div>
+          ) : null}
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link
+              to="/login"
+              className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition"
+            >
+              Sign in
+            </Link>
+            <Link
+              to="/signup"
+              className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-gray-900 bg-gray-100 hover:bg-gray-200 transition"
+            >
+              Create account
+            </Link>
+          </div>
+        </section>
       </div>
     );
   }
 
   return (
     <div className="max-w-6xl mx-auto">
-      {loadError && (
-        <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          {loadError}
-        </div>
-      )}
-
-      {/* HERO */}
       <section className="rounded-2xl bg-white shadow-sm border border-gray-200 p-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div className="max-w-2xl">
@@ -120,13 +242,13 @@ export default function Profile() {
               Profile
             </h1>
             <p className="mt-3 text-gray-600 text-base md:text-lg">
-              Manage your account settings. Changes are saved to the database.
+              Manage your backend account profile and role requests.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={() => setIsEditing((v) => !v)}
+                onClick={() => setIsEditing((value) => !value)}
                 className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition"
               >
                 {isEditing ? "Close editor" : "Edit profile"}
@@ -138,58 +260,26 @@ export default function Profile() {
               >
                 View history
               </Link>
-            </div>
 
-            <div className="mt-4 text-xs text-gray-500">
-              Logged in as <span className="font-semibold">{user.username}</span> &bull; {user.email}
-            </div>
-          </div>
-
-          {/* MINI STATUS */}
-          <div className="w-full md:w-[360px] rounded-2xl border border-gray-200 bg-gray-50 p-5">
-            <h2 className="text-sm font-semibold text-gray-900">Account status</h2>
-
-            <div className="mt-4 grid gap-3">
-              <StatusRow
-                title="Account"
-                label={systemStatus.account.label}
-                value={systemStatus.account.value}
-              />
-              <StatusRow
-                title="Storage"
-                label={systemStatus.storage.label}
-                value={systemStatus.storage.value}
-              />
-              <StatusRow
-                title="Last sync"
-                label={systemStatus.lastSync.label}
-                value={systemStatus.lastSync.value}
-              />
-            </div>
-
-            <div className="mt-4 text-xs text-gray-500">
-              Connected to your live account and database.
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-gray-900 bg-gray-100 hover:bg-gray-200 transition"
+              >
+                Sign out
+              </button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* MAIN GRID */}
       <section className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* DETAILS */}
         <div className="lg:col-span-2 rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="text-lg font-semibold text-gray-900">Profile details</h2>
-
-            <div className="flex items-center gap-2">
-              {saveError && (
-                <span className="text-xs text-red-600">{saveError}</span>
-              )}
-              {saveSuccess && (
-                <span className="text-xs text-green-600">Saved!</span>
-              )}
+          {message ? (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+              {message}
             </div>
-          </div>
+          ) : null}
 
           <div className="mt-5 flex items-start gap-4">
             <div className="h-12 w-12 rounded-2xl bg-gray-900 text-white flex items-center justify-center text-sm font-bold">
@@ -198,237 +288,148 @@ export default function Profile() {
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="text-sm font-semibold text-gray-900">
-                  {profile.displayName || user.username}
+                  {displayName}
                 </div>
                 <span className="text-xs font-semibold px-3 py-1 rounded-full bg-gray-100 text-gray-900">
-                  {user.accountType}
+                  {profile.accountType}
                 </span>
               </div>
-              <div className="text-xs text-gray-500 mt-1">{profile.affiliation}</div>
-              <div className="text-sm text-gray-600 mt-3">{profile.bio}</div>
+              <div className="text-xs text-gray-500 mt-1">@{profile.username}</div>
+              <div className="text-xs text-gray-500 mt-1">{profile.email}</div>
+              <div className="text-xs text-gray-500 mt-1">
+                {profile.gender || "No gender set"} | {profile.age || "No age set"}
+              </div>
             </div>
           </div>
 
-          {/* EDITOR */}
-          {isEditing && (
+          {isEditing ? (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Field
-                  label="Display name"
-                  value={profile.displayName}
-                  onChange={(v) => updateField("displayName", v)}
-                  placeholder="e.g., Vedanshi Jain"
-                />
+                <Field label="Username" value={profile.username} onChange={(value) => updateField("username", value)} placeholder="jsmith" />
+                <Field label="First name" value={profile.firstName} onChange={(value) => updateField("firstName", value)} placeholder="John" />
+                <Field label="Last name" value={profile.lastName} onChange={(value) => updateField("lastName", value)} placeholder="Smith" />
+                <Field label="Age" type="number" value={profile.age} onChange={(value) => updateField("age", value)} placeholder="34" />
                 <div>
-                  <label className="block text-sm font-semibold text-gray-900">Account type</label>
-                  <input
-                    value={user.accountType}
-                    readOnly
-                    className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed"
-                  />
+                  <label className="block text-sm font-semibold text-gray-900">Gender</label>
+                  <select
+                    value={profile.gender}
+                    onChange={(e) => updateField("gender", e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+                  >
+                    <option value="">Not set</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="non-binary">Non-binary</option>
+                    <option value="other">Other</option>
+                    <option value="prefer-not-to-say">Prefer not to say</option>
+                  </select>
                 </div>
-                <Field
-                  label="Affiliation"
-                  value={profile.affiliation}
-                  onChange={(v) => updateField("affiliation", v)}
-                  placeholder="e.g., Virginia Tech"
-                />
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-900">
-                    Bio
-                  </label>
-                  <textarea
-                    value={profile.bio}
-                    onChange={(e) => updateField("bio", e.target.value)}
-                    placeholder="What do you do in this project?"
-                    className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 min-h-[96px]"
-                  />
-                </div>
+                <Field label="Email" value={profile.email} onChange={() => {}} placeholder="you@example.com" disabled />
               </div>
 
               <div className="mt-4 flex items-center justify-between gap-3">
-                <div className="text-xs text-gray-500">
-                  Changes are saved to the database.
-                </div>
+                <div className="text-xs text-gray-500">Email and role changes use dedicated backend flows.</div>
                 <button
                   type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50 transition"
+                  onClick={saveProfile}
+                  disabled={isSaving}
+                  className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition disabled:opacity-60"
                 >
-                  {saving ? "Saving…" : "Save changes"}
+                  {isSaving ? "Saving..." : "Save changes"}
                 </button>
               </div>
             </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-gray-900">Account access</h2>
+          <div className="mt-4 grid gap-3 text-sm text-gray-600">
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white p-3">
+              <span className="font-semibold text-gray-900">Current role</span>
+              <span>{profile.accountType}</span>
+            </div>
+          </div>
+
+          {availableRoleRequests.length > 0 ? (
+            <form onSubmit={submitRoleRequest} className="mt-5 grid gap-3">
+              <label>
+                <span className="block text-sm font-semibold text-gray-900">Request role</span>
+                <select
+                  value={roleRequest.requestingAccount}
+                  onChange={(e) => setRoleRequest((prev) => ({ ...prev, requestingAccount: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+                >
+                  {availableRoleRequests.map((role) => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="block text-sm font-semibold text-gray-900">Reason</span>
+                <textarea
+                  value={roleRequest.reasonMessage}
+                  onChange={(e) => setRoleRequest((prev) => ({ ...prev, reasonMessage: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 min-h-[96px]"
+                  placeholder="Explain why this account access is needed."
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={isRequestingRole}
+                className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition disabled:opacity-60"
+              >
+                {isRequestingRole ? "Submitting..." : "Submit request"}
+              </button>
+            </form>
+          ) : (
+            <p className="mt-4 text-sm text-gray-600">No higher role is available to request.</p>
           )}
 
-          {/* PREFERENCES */}
           <div className="mt-6">
-            <h2 className="text-lg font-semibold text-gray-900">Preferences</h2>
-
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-gray-200 bg-white p-5">
-                <div className="text-sm font-semibold text-gray-900">
-                  Default landing page
-                </div>
-                <div className="mt-3">
-                  <select
-                    value={profile.preferences.defaultLanding}
-                    onChange={(e) => updatePref("defaultLanding", e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
-                  >
-                    <option value="upload">Upload</option>
-                    <option value="history">History</option>
-                  </select>
-                </div>
-                <div className="mt-3 text-xs text-gray-500">
-                  Later: we can auto-redirect you after login.
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-gray-200 bg-white p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900">
-                      Notifications
-                    </div>
-                    <div className="mt-1 text-xs text-gray-500">
-                      UI toggle for now (connect to backend later).
-                    </div>
+            <h3 className="text-sm font-semibold text-gray-900">Recent requests</h3>
+            <div className="mt-3 grid gap-2">
+              {changeRequests.length === 0 ? (
+                <p className="text-sm text-gray-500">No account change requests yet.</p>
+              ) : (
+                changeRequests.slice(0, 3).map((request) => (
+                  <div key={request.id} className="rounded-xl border border-gray-200 bg-white p-3 text-sm">
+                    <div className="font-semibold text-gray-900">{request.requestingAccount}</div>
+                    <div className="mt-1 text-xs text-gray-500">{request.status}</div>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updatePref("notifications", !profile.preferences.notifications)
-                    }
-                    className={[
-                      "w-12 h-7 rounded-full transition flex items-center p-1",
-                      profile.preferences.notifications ? "bg-gray-900" : "bg-gray-200",
-                    ].join(" ")}
-                    aria-pressed={profile.preferences.notifications}
-                    aria-label="Toggle notifications"
-                  >
-                    <span
-                      className={[
-                        "w-5 h-5 rounded-full bg-white transition",
-                        profile.preferences.notifications ? "translate-x-5" : "translate-x-0",
-                      ].join(" ")}
-                    />
-                  </button>
-                </div>
-              </div>
+                ))
+              )}
             </div>
           </div>
         </div>
-
-        {/* RIGHT COLUMN: STATS + QUICK ACTIONS */}
-        <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900">Your stats</h2>
-
-          <div className="mt-4 grid gap-3">
-            <StatRow label="Uploads submitted" value="—" />
-            <StatRow label="Reviews completed" value="—" />
-            <StatRow label="Flags raised" value="—" />
-            <StatRow label="Agreement rate" value="—" />
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-5">
-            <div className="text-sm font-semibold text-gray-900">Coming soon</div>
-            <div className="mt-2 text-sm text-gray-600">
-              Stats will reflect your verification work once review decisions are tracked.
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <h2 className="text-lg font-semibold text-gray-900">Quick actions</h2>
-            <div className="mt-4 grid gap-3">
-              <QuickCard
-                title="Upload"
-                desc="Start a new scrape and begin verification."
-                to="/upload"
-              />
-              <QuickCard
-                title="History"
-                desc="Review previous runs and decisions."
-                to="/history"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* KEY NOTES */}
-      <section className="mt-8 mb-6 rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
-        <h2 className="text-lg font-semibold text-gray-900">Key notes</h2>
-        <ul className="mt-3 grid gap-2 text-sm text-gray-600 list-disc pl-5">
-          <li>
-            Profile data is stored in the database and synced to your account.
-          </li>
-          <li>
-            Account type is managed by admins and cannot be changed here.
-          </li>
-          <li>
-            Stats will reflect your verification work (flags, approvals, and agreement with final outcomes).
-          </li>
-        </ul>
       </section>
     </div>
   );
 }
 
-function StatusRow({ title, label, value }) {
-  return (
-    <div className="flex items-center justify-between gap-4">
-      <div className="text-xs font-semibold text-gray-700">{title}</div>
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 font-semibold">
-          {label}
-        </span>
-        <span className="text-xs font-semibold text-gray-900">{value}</span>
-      </div>
-    </div>
-  );
-}
-
-function QuickCard({ title, desc, to }) {
-  return (
-    <Link
-      to={to}
-      className="group rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 transition p-4"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-gray-900">{title}</div>
-          <div className="mt-1 text-sm text-gray-600">{desc}</div>
-        </div>
-        <div className="text-sm font-semibold text-gray-900 group-hover:translate-x-0.5 transition">
-          →
-        </div>
-      </div>
-    </Link>
-  );
-}
-
-function Field({ label, value, onChange, placeholder }) {
+function Field({ label, value, onChange, placeholder, type = "text", disabled = false }) {
   return (
     <div>
       <label className="block text-sm font-semibold text-gray-900">{label}</label>
       <input
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+        disabled={disabled}
+        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 disabled:bg-gray-100 disabled:text-gray-500"
       />
     </div>
   );
 }
 
-function StatRow({ label, value }) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white p-3">
-      <div className="text-sm font-semibold text-gray-900">{label}</div>
-      <div className="text-sm font-semibold text-gray-900">{value}</div>
-    </div>
-  );
-}
+Field.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  onChange: PropTypes.func.isRequired,
+  placeholder: PropTypes.string.isRequired,
+  type: PropTypes.string,
+  disabled: PropTypes.bool,
+};

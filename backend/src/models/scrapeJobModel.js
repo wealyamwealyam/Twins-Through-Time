@@ -5,10 +5,12 @@
  *
  * Table: scrape_jobs
  * Columns: id (uuid pk), url, max_photos, status, submitted_by,
- *          photo_count, started_at, completed_at, created_at, updated_at
+ *          photo_count, error_message, started_at, completed_at, created_at, updated_at
  */
 
 import { supabase } from '../config/supabase.js';
+
+const jobErrorMessages = new Map();
 
 // ---------------------------------------------------------------------------
 // Column mapping helpers
@@ -20,6 +22,7 @@ const toDb = (obj) => ({
   ...(obj.status      !== undefined && { status:       obj.status }),
   ...(obj.submittedBy !== undefined && { submitted_by: obj.submittedBy }),
   ...(obj.photoCount  !== undefined && { photo_count:  obj.photoCount }),
+  ...(obj.errorMessage !== undefined && { error_message: obj.errorMessage }),
   ...(obj.startedAt   !== undefined && { started_at:   obj.startedAt }),
   ...(obj.completedAt !== undefined && { completed_at: obj.completedAt }),
 });
@@ -33,6 +36,7 @@ const fromDb = (row) => {
     status:      row.status,
     submittedBy: row.submitted_by,
     photoCount:  row.photo_count,
+    errorMessage: row.error_message ?? jobErrorMessages.get(row.id) ?? null,
     startedAt:   row.started_at,
     completedAt: row.completed_at,
     createdAt:   row.created_at,
@@ -100,12 +104,34 @@ export const findScrapeJobs = async ({
 };
 
 export const updateScrapeJob = async (id, updates) => {
+  const changes = toDb(updates);
+  if (Object.prototype.hasOwnProperty.call(updates, 'errorMessage')) {
+    if (updates.errorMessage) {
+      jobErrorMessages.set(id, updates.errorMessage);
+    } else {
+      jobErrorMessages.delete(id);
+    }
+  }
+
   const { data, error } = await supabase
     .from('scrape_jobs')
-    .update(toDb(updates))
+    .update(changes)
     .eq('id', id)
     .select()
     .single();
+
+  if (error && Object.prototype.hasOwnProperty.call(changes, 'error_message')) {
+    const { error_message, ...withoutErrorMessage } = changes;
+    const { data: retryData, error: retryError } = await supabase
+      .from('scrape_jobs')
+      .update(withoutErrorMessage)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (retryError) return null;
+    return fromDb(retryData);
+  }
 
   if (error) return null;
   return fromDb(data);
