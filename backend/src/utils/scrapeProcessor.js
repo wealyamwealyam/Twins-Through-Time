@@ -5,6 +5,9 @@ const IMAGE_EXTENSIONS = /\.(avif|gif|jpe?g|png|webp)(\?.*)?$/i;
 const IMAGE_ATTR_RE = /\b(?:src|data-src|data-original|data-full|href)\s*=\s*["']([^"']+)["']/gi;
 const TITLE_RE = /<title[^>]*>([^<]+)<\/title>/i;
 const ALT_RE = /\balt\s*=\s*["']([^"']+)["']/i;
+const RUNNING_VISIBLE_MS = 1500;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function decodeHtml(value) {
   return value
@@ -70,10 +73,13 @@ export async function processScrapeJob(jobId) {
 
   await updateScrapeJob(job.id, {
     status: 'running',
+    errorMessage: null,
     startedAt: new Date().toISOString(),
   });
 
   try {
+    await sleep(RUNNING_VISIBLE_MS);
+
     const response = await fetch(job.url, {
       headers: {
         'User-Agent': 'TwinsThroughTimeScraper/0.1 (+local capstone project)',
@@ -118,6 +124,7 @@ export async function processScrapeJob(jobId) {
     await updateScrapeJob(job.id, {
       status: 'completed',
       photoCount: images.length,
+      errorMessage: null,
       completedAt: new Date().toISOString(),
     });
   } catch (error) {
@@ -130,6 +137,7 @@ export async function processScrapeJob(jobId) {
 
     await updateScrapeJob(job.id, {
       status: 'failed',
+      errorMessage: error?.message || 'Scrape failed.',
       completedAt: new Date().toISOString(),
     });
   }

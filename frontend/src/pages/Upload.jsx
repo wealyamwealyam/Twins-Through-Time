@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import PropTypes from "prop-types";
 
 import MetadataReviewPopup from "../components/MetadataPopup";
@@ -34,6 +33,9 @@ export default function Upload() {
   const [submitting, setSubmitting] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
   const [loadingRuns, setLoadingRuns] = useState(true);
+  const [errorDetails, setErrorDetails] = useState(null);
+  const [reviewImages, setReviewImages] = useState([]);
+  const [reviewMessage, setReviewMessage] = useState("");
   const [openReview, setOpenReview] = useState(false);
 
   const images = [
@@ -73,6 +75,25 @@ export default function Upload() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!runs.some((run) => ["queued", "running"].includes(run.status))) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(async () => {
+      if (!getBackendSession()?.token) return;
+
+      try {
+        const result = await apiRequest("/scrape-jobs");
+        setRuns(result?.data || []);
+      } catch (error) {
+        setError(error?.message || "Unable to refresh scrape runs.");
+      }
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [runs]);
 
   function isValidUrl(str) {
     try {
@@ -149,6 +170,71 @@ export default function Upload() {
     } catch (error) {
       setError(error?.message || "Unable to cancel scrape run.");
     }
+  }
+
+  async function showErrorDetails(run) {
+    try {
+      const job = await apiRequest(`/scrape-jobs/${run.id}`);
+      setErrorDetails({
+        id: job.id,
+        url: job.url,
+        status: job.status,
+        message: job.errorMessage || run.errorMessage || "No backend error detail is available for this job.",
+      });
+    } catch (error) {
+      setErrorDetails({
+        id: run.id,
+        url: run.url,
+        status: run.status,
+        message: error?.message || "Unable to load scrape job error details.",
+      });
+    }
+  }
+
+  async function openBackendReview(run) {
+    setReviewMessage("");
+
+    try {
+      const result = await apiRequest(`/photos?scrapeJobId=${encodeURIComponent(run.id)}&limit=100`);
+      const photos = result?.data || [];
+
+      if (photos.length === 0) {
+        setReviewMessage("This scrape completed, but no photos were created for review.");
+        return;
+      }
+
+      setReviewImages(
+        photos.map((photo) => ({
+          id: photo.id,
+          src: photo.imageUrl,
+          fileName: photo.imageUrl?.split("/").pop() || photo.id,
+          name: photo.name || "",
+          photoNotes: photo.photoNotes || "",
+        }))
+      );
+      setOpenReview(true);
+    } catch (error) {
+      setReviewMessage(error?.message || "Unable to load scraped photos.");
+    }
+  }
+
+  async function savePhotoMetadata(annotation) {
+    await apiRequest(`/photos/${annotation.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: annotation.metadata.name || null,
+        age: annotation.metadata.ageRange === "Unknown" ? null : annotation.metadata.ageRange,
+        regiment: annotation.metadata.affiliation === "Unknown" ? null : annotation.metadata.affiliation,
+        photoNotes: annotation.metadata.notes || null,
+        tags: [
+          annotation.metadata.race,
+          annotation.metadata.sex,
+          ...Object.entries(annotation.metadata.accessories)
+            .filter(([, enabled]) => enabled)
+            .map(([key]) => key),
+        ].filter((tag) => tag && tag !== "Unknown"),
+      }),
+    });
   }
 
   function formatDate(iso) {
@@ -270,6 +356,11 @@ export default function Upload() {
               </div>
             ) : (
               <div className="mt-4 divide-y divide-gray-100">
+                {reviewMessage ? (
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                    {reviewMessage}
+                  </div>
+                ) : null}
                 {runs.map((run) => (
                   <div key={run.id} className="py-4 flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
@@ -289,16 +380,22 @@ export default function Upload() {
                         <span>|</span>
                         <span>Max {run.maxPhotos}</span>
                       </div>
+                      {run.status === "failed" && run.errorMessage ? (
+                        <p className="mt-2 text-xs font-medium text-red-600">
+                          {run.errorMessage}
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
                       {run.status === "completed" ? (
-                        <Link
-                          to="/history"
+                        <button
+                          type="button"
+                          onClick={() => openBackendReview(run)}
                           className="text-xs font-semibold text-gray-900 hover:underline"
                         >
                           Review -&gt;
-                        </Link>
+                        </button>
                       ) : null}
                       {["queued", "running"].includes(run.status) ? (
                         <button
@@ -307,6 +404,15 @@ export default function Upload() {
                           className="text-xs text-gray-400 hover:text-red-500 transition font-medium"
                         >
                           Cancel
+                        </button>
+                      ) : null}
+                      {run.status === "failed" ? (
+                        <button
+                          type="button"
+                          onClick={() => showErrorDetails(run)}
+                          className="text-xs font-semibold text-red-700 hover:underline"
+                        >
+                          View error
                         </button>
                       ) : null}
                     </div>
@@ -392,10 +498,36 @@ export default function Upload() {
         </div>
       ) : null}
 
+      {errorDetails ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6 w-full max-w-lg mx-4">
+            <h3 className="text-base font-semibold text-gray-900">Scrape error</h3>
+            <p className="mt-2 text-sm text-gray-500 break-all">{errorDetails.url}</p>
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {errorDetails.message}
+            </div>
+            <p className="mt-3 text-xs text-gray-500">Job {errorDetails.id}</p>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setErrorDetails(null)}
+                className="rounded-xl px-4 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <MetadataReviewPopup
-        images={images}
+        images={reviewImages.length > 0 ? reviewImages : images}
         isOpen={openReview}
-        onClose={() => setOpenReview(false)}
+        onClose={() => {
+          setOpenReview(false);
+          setReviewImages([]);
+        }}
+        onSave={reviewImages.length > 0 ? savePhotoMetadata : undefined}
       />
     </div>
   );

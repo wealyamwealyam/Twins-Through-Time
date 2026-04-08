@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import PropTypes from "prop-types";
 
 const AGE_OPTIONS = [
   "Unknown",
@@ -50,18 +51,18 @@ function buildInitialAnnotation(image, index) {
     imageSrc: image.src,
     fileName: image.fileName ?? image.src?.split("/").pop() ?? `image-${index + 1}`,
     metadata: {
-      name: "",
+      name: image.name ?? "",
       ageRange: "Unknown",
       affiliation: "Unknown",
       race: "Unknown",
       sex: "Unknown",
       accessories: { ...DEFAULT_FLAGS },
-      notes: "",
+      notes: image.photoNotes ?? "",
     },
   };
 }
 
-export default function MetadataReviewPopup({ images = [], isOpen, onClose }) {
+export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSave }) {
   const initialData = useMemo(
     () => images.map((img, idx) => buildInitialAnnotation(img, idx)),
     [images]
@@ -69,10 +70,13 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose }) {
 
   const [annotations, setAnnotations] = useState(initialData);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setAnnotations(initialData);
     setCurrentIndex(0);
+    setSaveMessage("");
   }, [initialData, isOpen]);
 
   if (!isOpen) return null;
@@ -137,6 +141,25 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose }) {
   const goPrev = () => setCurrentIndex((prev) => Math.max(prev - 1, 0));
   const goNext = () =>
     setCurrentIndex((prev) => Math.min(prev + 1, annotations.length - 1));
+
+  const saveCurrent = async () => {
+    if (!onSave) {
+      setSaveMessage("No save handler is connected.");
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveMessage("");
+
+    try {
+      await onSave(current);
+      setSaveMessage("Saved metadata.");
+    } catch (error) {
+      setSaveMessage(error?.message || "Unable to save metadata.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const progress = `${currentIndex + 1} / ${annotations.length}`;
 
@@ -330,6 +353,19 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose }) {
                 Next
               </button>
             </div>
+            <div className="flex items-center gap-3">
+              {saveMessage ? (
+                <span className="text-xs text-gray-500">{saveMessage}</span>
+              ) : null}
+              <button
+                type="button"
+                onClick={saveCurrent}
+                disabled={isSaving}
+                className="rounded-lg bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {isSaving ? "Saving..." : "Save metadata"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -352,3 +388,18 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose }) {
     </div>
   );
 }
+
+MetadataReviewPopup.propTypes = {
+  images: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.string,
+      src: PropTypes.string,
+      fileName: PropTypes.string,
+      name: PropTypes.string,
+      photoNotes: PropTypes.string,
+    })
+  ),
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  onSave: PropTypes.func,
+};

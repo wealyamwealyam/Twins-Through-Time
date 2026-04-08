@@ -55,6 +55,7 @@ export const submitScrapeJob = async (req, res) => {
       console.error(`[scrape-jobs] failed to process job ${job.id}:`, err);
       updateScrapeJob(job.id, {
         status: 'failed',
+        errorMessage: err?.message || 'Scrape failed.',
         completedAt: new Date().toISOString(),
       }).catch((updateErr) => {
         console.error(`[scrape-jobs] failed to mark job ${job.id} failed:`, updateErr);
