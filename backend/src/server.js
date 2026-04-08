@@ -1,9 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
-
-// Load environment variables FIRST — before any middleware reads process.env
-dotenv.config();
+import { supabase } from './config/supabase.js';
 
 import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
@@ -32,12 +29,33 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Basic route
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+app.get('/api/health', async (req, res) => {
+  // Ping Supabase with a lightweight count query on profiles
+  const { count, error } = await supabase
+    .from('profiles')
+    .select('*', { count: 'exact', head: true });
+
+  res.json({
+    status: error ? 'degraded' : 'ok',
     message: 'Twins Through Time API is running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    db: error
+      ? { connected: false, error: error.message }
+      : { connected: true, profileCount: count },
   });
+});
+
+// Dev-only: read up to 10 rows from profiles to confirm connectivity
+app.get('/api/test/profiles', async (req, res) => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, display_name, email, role, is_active, created_at')
+    .limit(10);
+
+  if (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+  res.json({ ok: true, count: data.length, profiles: data });
 });
 
 // Auth API routes (§1 in docs/apis.md)
@@ -63,105 +81,6 @@ app.use('/api/onboarding-requests', onboardingRequestRoutes);
 
 // Admin API routes (§8 in docs/apis.md)
 app.use('/api/admin', adminRoutes);
-
-// ── Dev-only: seed endpoint for testing ─────────────────────────────────────
-if (process.env.NODE_ENV !== 'production') {
-  const { createUser } = await import('./models/userModel.js');
-  const { createPhoto, updatePhoto } = await import('./models/photoModel.js');
-  const jwt = (await import('jsonwebtoken')).default;
-  const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
-
-  app.post('/api/test/seed', (req, res) => {
-    const user = createUser({
-      username: 'jsmith',
-      email: 'jsmith@example.com',
-      passwordHash: 'hashed',
-      firstName: 'John',
-      lastName: 'Smith',
-      age: 34,
-      gender: 'male',
-      accountType: 'community_member',
-    });
-    const admin = createUser({
-      username: 'adminuser',
-      email: 'admin@example.com',
-      passwordHash: 'hashed',
-      firstName: 'Jane',
-      lastName: 'Doe',
-      age: 40,
-      gender: 'female',
-      accountType: 'admin',
-    });
-
-    const FAKE_JOB_ID = '00000000-0000-0000-0000-000000000001';
-
-    // Two pending_review photos (raw, not yet reviewed)
-    const photo1 = createPhoto({
-      scrapeJobId: FAKE_JOB_ID,
-      submittedBy: user.id,
-      imageUrl: 'https://example.com/photo1.jpg',
-      name: 'Unidentified Union Soldier',
-      regiment: '1st Ohio Infantry',
-      tags: ['union', 'portrait'],
-      isAutoExtracted: true,
-    });
-    const photo2 = createPhoto({
-      scrapeJobId: FAKE_JOB_ID,
-      submittedBy: user.id,
-      imageUrl: 'https://example.com/photo2.jpg',
-      name: 'Unidentified Confederate Soldier',
-      tags: ['confederate', 'portrait'],
-      isAutoExtracted: true,
-    });
-
-    // Two reviewed photos — eligible for onboarding requests
-    const reviewedPhoto1 = createPhoto({
-      scrapeJobId: FAKE_JOB_ID,
-      submittedBy: user.id,
-      imageUrl: 'https://example.com/reviewed1.jpg',
-      name: 'Sergeant William H. Carney',
-      regiment: '54th Massachusetts Infantry',
-      tags: ['union', 'portrait', 'medal of honor'],
-    });
-    updatePhoto(reviewedPhoto1.id, { status: 'reviewed' });
-
-    const reviewedPhoto2 = createPhoto({
-      scrapeJobId: FAKE_JOB_ID,
-      submittedBy: user.id,
-      imageUrl: 'https://example.com/reviewed2.jpg',
-      name: 'General Ulysses S. Grant',
-      regiment: 'Army of the Potomac',
-      tags: ['union', 'general', 'portrait'],
-    });
-    updatePhoto(reviewedPhoto2.id, { status: 'reviewed' });
-
-    const userToken  = jwt.sign({ id: user.id,  username: user.username,  accountType: user.accountType  }, JWT_SECRET, { expiresIn: '1h' });
-    const adminToken = jwt.sign({ id: admin.id, username: admin.username, accountType: admin.accountType }, JWT_SECRET, { expiresIn: '1h' });
-
-    res.status(201).json({
-      user, admin, userToken, adminToken,
-      photo1, photo2,
-      reviewedPhoto1: { ...reviewedPhoto1, status: 'reviewed' },
-      reviewedPhoto2: { ...reviewedPhoto2, status: 'reviewed' },
-      scrapeJobId: FAKE_JOB_ID,
-    });
-  });
-}
-
-// Example API routes
-app.get('/api/photos', (req, res) => {
-  res.json({ 
-    message: 'Get all photos endpoint',
-    data: []
-  });
-});
-
-app.post('/api/photos/upload', (req, res) => {
-  res.json({ 
-    message: 'Upload photo endpoint',
-    data: null
-  });
-});
 
 // 404 handler
 app.use((req, res) => {

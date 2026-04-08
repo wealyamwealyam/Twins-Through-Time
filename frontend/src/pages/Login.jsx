@@ -1,7 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { supabase } from "../supabaseClient";
-import { clearSupabaseAuthStorage } from "../utils/authSession";
+import { apiRequest, saveBackendSession } from "../utils/apiClient";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -18,67 +17,6 @@ export default function Login() {
 
   function validateEmail(email) {
     return /\S+@\S+\.\S+/.test(email);
-  }
-
-  function withTimeout(promise, ms = 6000) {
-    return Promise.race([
-      promise,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Sign-in timed out.")), ms)
-      ),
-    ]);
-  }
-
-  async function ensureUserRows(user) {
-    const fullName =
-      user.user_metadata?.full_name ||
-      user.email?.split("@")[0] ||
-      "User";
-
-    const phone = user.user_metadata?.phone || null;
-
-    const { error: profileError } = await supabase.from("profiles").upsert(
-      {
-        id: user.id,
-        display_name: fullName,
-        email: user.email || "",
-        phone,
-        role: "member",
-        affiliation: "Twins Through Time",
-        bio: "Account active.",
-      },
-      { onConflict: "id" }
-    );
-
-    if (profileError) throw profileError;
-
-    const { error: preferencesError } = await supabase
-      .from("profile_preferences")
-      .upsert(
-        {
-          user_id: user.id,
-          default_landing: "upload",
-          notifications: true,
-        },
-        { onConflict: "user_id" }
-      );
-
-    if (preferencesError) throw preferencesError;
-
-    const { error: statsError } = await supabase
-      .from("user_stats")
-      .upsert(
-        {
-          user_id: user.id,
-          uploads_submitted: 0,
-          reviews_completed: 0,
-          flags_raised: 0,
-          agreement_rate: null,
-        },
-        { onConflict: "user_id" }
-      );
-
-    if (statsError) throw statsError;
   }
 
   async function handleSubmit(e) {
@@ -100,54 +38,24 @@ export default function Login() {
     try {
       const email = form.email.trim().toLowerCase();
 
-      const { data, error } = await withTimeout(
-        supabase.auth.signInWithPassword({
+      const backendSession = await apiRequest("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
           email,
           password: form.password,
         }),
-        6000
-      );
+      });
 
-      if (error) {
-        setMessage(error.message);
-        return;
-      }
+      saveBackendSession(backendSession);
 
-      const user = data?.user || data?.session?.user;
-
-      if (!user) {
-        setMessage("Signed in, but no user session was returned.");
-        return;
-      }
-
-      await ensureUserRows(user);
-      await withTimeout(supabase.auth.getSession(), 3000);
-
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (profileError) {
-        setMessage(profileError.message);
-        return;
-      }
-
-      if (profile?.role === "admin") {
+      if (backendSession?.user?.accountType === "admin") {
         navigate("/admin");
         return;
       }
 
       navigate("/profile");
     } catch (error) {
-      clearSupabaseAuthStorage();
-
-      setMessage(
-        error?.message === "Sign-in timed out."
-          ? "Sign-in got stuck locally. We cleared the stale auth state. Please try again."
-          : error?.message || "Something went wrong while signing in."
-      );
+      setMessage(error?.message || "Something went wrong while signing in.");
     } finally {
       setIsSubmitting(false);
     }

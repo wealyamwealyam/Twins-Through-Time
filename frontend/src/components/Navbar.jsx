@@ -1,7 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { supabase } from "../supabaseClient";
-import { clearSupabaseAuthStorage, getSafeSession } from "../utils/authSession";
+import { clearBackendSession, getBackendSession } from "../utils/apiClient";
 
 export default function Navbar() {
   const navigate = useNavigate();
@@ -14,40 +13,29 @@ export default function Navbar() {
   useEffect(() => {
     let mounted = true;
 
-    async function fetchProfile(user) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("id, display_name, email, role")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      return profile || null;
-    }
-
-    async function loadAuth() {
+    function loadAuth() {
       try {
-        const { session } = await getSafeSession(supabase, 2000);
-        const user = session?.user ?? null;
+        const backendSession = getBackendSession();
 
-        if (!mounted) return;
+        if (backendSession?.user) {
+          if (!mounted) return;
 
-        if (!user) {
           setAuth({
-            isAuthenticated: false,
-            user: null,
-            profile: null,
+            isAuthenticated: true,
+            user: backendSession.user,
+            profile: {
+              display_name: backendSession.user.username,
+              role: backendSession.user.accountType,
+            },
           });
           return;
         }
 
-        const profile = await fetchProfile(user);
-
         if (!mounted) return;
-
         setAuth({
-          isAuthenticated: true,
-          user,
-          profile,
+          isAuthenticated: false,
+          user: null,
+          profile: null,
         });
       } catch {
         if (!mounted) return;
@@ -62,52 +50,16 @@ export default function Navbar() {
 
     loadAuth();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const user = session?.user ?? null;
-
-      if (!mounted) return;
-
-      if (!user) {
-        setAuth({
-          isAuthenticated: false,
-          user: null,
-          profile: null,
-        });
-        return;
-      }
-
-      const profile = await fetchProfile(user);
-
-      if (!mounted) return;
-
-      setAuth({
-        isAuthenticated: true,
-        user,
-        profile,
-      });
-    });
+    window.addEventListener("ttt-backend-session", loadAuth);
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
+      window.removeEventListener("ttt-backend-session", loadAuth);
     };
   }, []);
 
-  async function handleSignOut() {
-    try {
-      await Promise.race([
-        supabase.auth.signOut(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Sign-out timed out.")), 3000)
-        ),
-      ]);
-    } catch {
-      // ignore and continue local cleanup
-    }
-
-    clearSupabaseAuthStorage();
+  function handleSignOut() {
+    clearBackendSession();
 
     setAuth({
       isAuthenticated: false,
@@ -118,7 +70,7 @@ export default function Navbar() {
     navigate("/login");
   }
 
-  async function handleBrandClick(e) {
+  function handleBrandClick(e) {
     e.preventDefault();
 
     if (!auth.user) {
@@ -126,33 +78,16 @@ export default function Navbar() {
       return;
     }
 
-    const { data: preferences } = await supabase
-      .from("profile_preferences")
-      .select("default_landing")
-      .eq("user_id", auth.user.id)
-      .maybeSingle();
-
-    const landing = preferences?.default_landing || "upload";
-
-    if (landing === "history") {
-      navigate("/history");
-      return;
-    }
-
-    if (landing === "upload") {
-      navigate("/upload");
-      return;
-    }
-
-    navigate("/");
+    navigate("/upload");
   }
 
   const displayName =
     auth.profile?.display_name ||
+    auth.user?.username ||
     auth.user?.email?.split("@")[0] ||
     "Profile";
 
-  const isAdmin = auth.profile?.role === "admin";
+  const isAdmin = auth.profile?.role === "admin" || auth.user?.accountType === "admin";
 
   return (
     <nav className="w-full bg-slate-700 text-white shadow-md">

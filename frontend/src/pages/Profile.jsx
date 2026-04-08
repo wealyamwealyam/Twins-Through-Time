@@ -1,37 +1,33 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../supabaseClient";
-import { getSafeSession } from "../utils/authSession";
+import PropTypes from "prop-types";
+
+import { clearBackendSession, apiRequest, getBackendSession } from "../utils/apiClient";
+
+const defaultProfile = {
+  id: null,
+  username: "",
+  email: "",
+  firstName: "",
+  lastName: "",
+  age: "",
+  gender: "",
+  accountType: "community_member",
+};
 
 export default function Profile() {
   const navigate = useNavigate();
-
-  const defaultProfile = {
-    userId: null,
-    displayName: "",
-    email: "",
-    phone: "",
-    role: "member",
-    affiliation: "Twins Through Time",
-    bio: "",
-    preferences: {
-      defaultLanding: "upload",
-      notifications: true,
-    },
-    stats: {
-      uploadsSubmitted: 0,
-      reviewsCompleted: 0,
-      flagsRaised: 0,
-      agreementRate: null,
-    },
-  };
-
   const [profile, setProfile] = useState(defaultProfile);
-  const [authState, setAuthState] = useState("loading"); // loading | guest | authenticated
+  const [authState, setAuthState] = useState("loading");
   const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState("");
-  const [sessionMessage, setSessionMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [changeRequests, setChangeRequests] = useState([]);
+  const [roleRequest, setRoleRequest] = useState({
+    requestingAccount: "contributor",
+    reasonMessage: "",
+  });
+  const [isRequestingRole, setIsRequestingRole] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,116 +35,71 @@ export default function Profile() {
     async function loadProfile() {
       setAuthState("loading");
       setMessage("");
-      setSessionMessage("");
+
+      if (!getBackendSession()?.token) {
+        setProfile(defaultProfile);
+        setAuthState("guest");
+        return;
+      }
 
       try {
-        const { session, recovered, error } = await getSafeSession(supabase, 2500);
-        const user = session?.user ?? null;
-
-        if (!user) {
-          if (!cancelled) {
-            setProfile(defaultProfile);
-            setAuthState("guest");
-
-            if (recovered) {
-              setSessionMessage("We reset a stale local session. Please sign in again.");
-            } else if (error?.message === "Auth request timed out.") {
-              setSessionMessage("Auth request timed out. Please sign in again.");
-            } else {
-              setSessionMessage("You are not signed in.");
-            }
-          }
-          return;
-        }
-
-        const [profileRes, preferencesRes, statsRes] = await Promise.all([
-          supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
-          supabase.from("profile_preferences").select("*").eq("user_id", user.id).maybeSingle(),
-          supabase.from("user_stats").select("*").eq("user_id", user.id).maybeSingle(),
+        const [profileData, requestsData] = await Promise.all([
+          apiRequest("/account/profile"),
+          apiRequest("/account-change-requests/me").catch(() => []),
         ]);
-
-        if (profileRes.error) throw profileRes.error;
-        if (preferencesRes.error) throw preferencesRes.error;
-        if (statsRes.error) throw statsRes.error;
 
         if (cancelled) return;
 
-        const profileRow = profileRes.data;
-        const preferencesRow = preferencesRes.data;
-        const statsRow = statsRes.data;
-
         setProfile({
-          userId: user.id,
-          displayName:
-            profileRow?.display_name ||
-            user.user_metadata?.full_name ||
-            user.email?.split("@")[0] ||
-            "User",
-          email: profileRow?.email || user.email || "",
-          phone: profileRow?.phone || user.user_metadata?.phone || "",
-          role: profileRow?.role || "member",
-          affiliation: profileRow?.affiliation || "Twins Through Time",
-          bio:
-            profileRow?.bio ||
-            "Manage your reviewer workspace settings and saved preferences.",
-          preferences: {
-            defaultLanding: preferencesRow?.default_landing || "upload",
-            notifications: preferencesRow?.notifications ?? true,
-          },
-          stats: {
-            uploadsSubmitted: statsRow?.uploads_submitted ?? 0,
-            reviewsCompleted: statsRow?.reviews_completed ?? 0,
-            flagsRaised: statsRow?.flags_raised ?? 0,
-            agreementRate: statsRow?.agreement_rate ?? null,
-          },
+          ...defaultProfile,
+          ...profileData,
+          age: profileData?.age ?? "",
+          gender: profileData?.gender ?? "",
         });
-
+        setChangeRequests(Array.isArray(requestsData) ? requestsData : []);
         setAuthState("authenticated");
       } catch (error) {
         if (!cancelled) {
           setProfile(defaultProfile);
           setAuthState("guest");
-          setSessionMessage(error?.message || "Unable to load session.");
+          setMessage(error?.message || "Unable to load profile.");
         }
       }
     }
 
     loadProfile();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (cancelled) return;
-
-      if (!session?.user) {
-        setProfile(defaultProfile);
-        setAuthState("guest");
-        setIsEditing(false);
-      }
-    });
-
     return () => {
       cancelled = true;
-      subscription.unsubscribe();
     };
   }, []);
 
-  const initials = useMemo(() => {
-    const parts = (profile.displayName || "")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
+  const displayName = `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || profile.username || "User";
 
+  const initials = useMemo(() => {
+    const parts = displayName.trim().split(/\s+/).filter(Boolean);
     const a = parts[0]?.[0] || "T";
     const b = parts[1]?.[0] || parts[0]?.[1] || "T";
-
     return (a + b).toUpperCase();
-  }, [profile.displayName]);
+  }, [displayName]);
 
-  const agreementLabel =
-    typeof profile.stats.agreementRate === "number"
-      ? `${Math.max(0, Math.min(100, Math.round(profile.stats.agreementRate)))}%`
-      : "—";
+  const availableRoleRequests = useMemo(() => {
+    if (profile.accountType === "community_member") return ["contributor", "admin"];
+    if (profile.accountType === "contributor") return ["admin"];
+    return [];
+  }, [profile.accountType]);
+
+  useEffect(() => {
+    if (
+      availableRoleRequests.length > 0 &&
+      !availableRoleRequests.includes(roleRequest.requestingAccount)
+    ) {
+      setRoleRequest((prev) => ({
+        ...prev,
+        requestingAccount: availableRoleRequests[0],
+      }));
+    }
+  }, [availableRoleRequests, roleRequest.requestingAccount]);
 
   function updateField(key, value) {
     setProfile((prev) => ({
@@ -157,15 +108,8 @@ export default function Profile() {
     }));
   }
 
-  function updatePref(key, value) {
-    setProfile((prev) => ({
-      ...prev,
-      preferences: { ...prev.preferences, [key]: value },
-    }));
-  }
-
   async function saveProfile() {
-    if (authState !== "authenticated" || !profile.userId) {
+    if (authState !== "authenticated" || !profile.id) {
       setMessage("Please sign in to save profile changes.");
       return;
     }
@@ -174,34 +118,31 @@ export default function Profile() {
     setMessage("");
 
     try {
-      const { error: profileError } = await supabase.from("profiles").upsert(
-        {
-          id: profile.userId,
-          display_name: profile.displayName,
-          email: profile.email,
-          phone: profile.phone || null,
-          role: profile.role,
-          affiliation: profile.affiliation,
-          bio: profile.bio,
-        },
-        { onConflict: "id" }
-      );
+      const updates = {
+        username: profile.username,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+      };
 
-      if (profileError) throw profileError;
+      if (profile.age !== "") {
+        updates.age = Number(profile.age);
+      }
 
-      const { error: preferencesError } = await supabase
-        .from("profile_preferences")
-        .upsert(
-          {
-            user_id: profile.userId,
-            default_landing: profile.preferences.defaultLanding,
-            notifications: profile.preferences.notifications,
-          },
-          { onConflict: "user_id" }
-        );
+      if (profile.gender) {
+        updates.gender = profile.gender;
+      }
 
-      if (preferencesError) throw preferencesError;
+      const updated = await apiRequest("/account/profile", {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      });
 
+      setProfile({
+        ...defaultProfile,
+        ...updated,
+        age: updated?.age ?? "",
+        gender: updated?.gender ?? "",
+      });
       setIsEditing(false);
       setMessage("Profile updated successfully.");
     } catch (error) {
@@ -211,8 +152,38 @@ export default function Profile() {
     }
   }
 
-  async function handleSignOut() {
-    await supabase.auth.signOut();
+  async function submitRoleRequest(e) {
+    e.preventDefault();
+
+    if (!roleRequest.reasonMessage.trim()) {
+      setMessage("Please add a reason for the account change request.");
+      return;
+    }
+
+    setIsRequestingRole(true);
+    setMessage("");
+
+    try {
+      const request = await apiRequest("/account-change-requests", {
+        method: "POST",
+        body: JSON.stringify({
+          requestingAccount: roleRequest.requestingAccount,
+          reasonMessage: roleRequest.reasonMessage,
+        }),
+      });
+
+      setChangeRequests((prev) => [request, ...prev]);
+      setRoleRequest((prev) => ({ ...prev, reasonMessage: "" }));
+      setMessage("Account change request submitted.");
+    } catch (error) {
+      setMessage(error?.message || "Unable to submit account change request.");
+    } finally {
+      setIsRequestingRole(false);
+    }
+  }
+
+  function handleSignOut() {
+    clearBackendSession();
     navigate("/login");
   }
 
@@ -234,12 +205,12 @@ export default function Profile() {
             Profile
           </h1>
           <p className="mt-3 text-gray-600 text-base md:text-lg">
-            Sign in to view and edit your profile, preferences, and activity stats.
+            Sign in to view and edit your backend profile.
           </p>
 
-          {sessionMessage ? (
+          {message ? (
             <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-              {sessionMessage}
+              {message}
             </div>
           ) : null}
 
@@ -250,7 +221,6 @@ export default function Profile() {
             >
               Sign in
             </Link>
-
             <Link
               to="/signup"
               className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-gray-900 bg-gray-100 hover:bg-gray-200 transition"
@@ -272,13 +242,13 @@ export default function Profile() {
               Profile
             </h1>
             <p className="mt-3 text-gray-600 text-base md:text-lg">
-              Manage your reviewer workspace settings. Profile data now syncs with Supabase.
+              Manage your backend account profile and role requests.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={() => setIsEditing((v) => !v)}
+                onClick={() => setIsEditing((value) => !value)}
                 className="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition"
               >
                 {isEditing ? "Close editor" : "Edit profile"}
@@ -306,7 +276,7 @@ export default function Profile() {
       <section className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
           {message ? (
-            <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
               {message}
             </div>
           ) : null}
@@ -318,39 +288,47 @@ export default function Profile() {
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="text-sm font-semibold text-gray-900">
-                  {profile.displayName}
+                  {displayName}
                 </div>
                 <span className="text-xs font-semibold px-3 py-1 rounded-full bg-gray-100 text-gray-900">
-                  {profile.role}
+                  {profile.accountType}
                 </span>
               </div>
-              <div className="text-xs text-gray-500 mt-1">{profile.affiliation}</div>
+              <div className="text-xs text-gray-500 mt-1">@{profile.username}</div>
               <div className="text-xs text-gray-500 mt-1">{profile.email}</div>
-              {profile.phone ? <div className="text-xs text-gray-500 mt-1">{profile.phone}</div> : null}
-              <div className="text-sm text-gray-600 mt-3">{profile.bio}</div>
+              <div className="text-xs text-gray-500 mt-1">
+                {profile.gender || "No gender set"} | {profile.age || "No age set"}
+              </div>
             </div>
           </div>
 
-          {isEditing && (
+          {isEditing ? (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Field label="Display name" value={profile.displayName} onChange={(v) => updateField("displayName", v)} placeholder="e.g., Jane" />
-                <Field label="Email" value={profile.email} onChange={(v) => updateField("email", v)} placeholder="you@example.com" />
-                <Field label="Phone" value={profile.phone} onChange={(v) => updateField("phone", v)} placeholder="+1 555 123 4567" />
-                <Field label="Affiliation" value={profile.affiliation} onChange={(v) => updateField("affiliation", v)} placeholder="e.g., Virginia Tech" />
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-900">Bio</label>
-                  <textarea
-                    value={profile.bio}
-                    onChange={(e) => updateField("bio", e.target.value)}
-                    placeholder="What do you do in this project?"
-                    className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 min-h-[96px]"
-                  />
+                <Field label="Username" value={profile.username} onChange={(value) => updateField("username", value)} placeholder="jsmith" />
+                <Field label="First name" value={profile.firstName} onChange={(value) => updateField("firstName", value)} placeholder="John" />
+                <Field label="Last name" value={profile.lastName} onChange={(value) => updateField("lastName", value)} placeholder="Smith" />
+                <Field label="Age" type="number" value={profile.age} onChange={(value) => updateField("age", value)} placeholder="34" />
+                <div>
+                  <label className="block text-sm font-semibold text-gray-900">Gender</label>
+                  <select
+                    value={profile.gender}
+                    onChange={(e) => updateField("gender", e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+                  >
+                    <option value="">Not set</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="non-binary">Non-binary</option>
+                    <option value="other">Other</option>
+                    <option value="prefer-not-to-say">Prefer not to say</option>
+                  </select>
                 </div>
+                <Field label="Email" value={profile.email} onChange={() => {}} placeholder="you@example.com" disabled />
               </div>
 
               <div className="mt-4 flex items-center justify-between gap-3">
-                <div className="text-xs text-gray-500">Changes save to Supabase.</div>
+                <div className="text-xs text-gray-500">Email and role changes use dedicated backend flows.</div>
                 <button
                   type="button"
                   onClick={saveProfile}
@@ -361,64 +339,69 @@ export default function Profile() {
                 </button>
               </div>
             </div>
-          )}
-
-          <div className="mt-6">
-            <h2 className="text-lg font-semibold text-gray-900">Preferences</h2>
-
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-gray-200 bg-white p-5">
-                <div className="text-sm font-semibold text-gray-900">Default landing page</div>
-                <div className="mt-3">
-                  <select
-                    value={profile.preferences.defaultLanding}
-                    onChange={(e) => updatePref("defaultLanding", e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
-                  >
-                    <option value="upload">Upload</option>
-                    <option value="history">History</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-gray-200 bg-white p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900">Notifications</div>
-                    <div className="mt-1 text-xs text-gray-500">Toggle preference saved in database.</div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => updatePref("notifications", !profile.preferences.notifications)}
-                    className={[
-                      "w-12 h-7 rounded-full transition flex items-center p-1",
-                      profile.preferences.notifications ? "bg-gray-900" : "bg-gray-200",
-                    ].join(" ")}
-                    aria-pressed={profile.preferences.notifications}
-                    aria-label="Toggle notifications"
-                  >
-                    <span
-                      className={[
-                        "w-5 h-5 rounded-full bg-white transition",
-                        profile.preferences.notifications ? "translate-x-5" : "translate-x-0",
-                      ].join(" ")}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          ) : null}
         </div>
 
         <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900">Your stats</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Account access</h2>
+          <div className="mt-4 grid gap-3 text-sm text-gray-600">
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white p-3">
+              <span className="font-semibold text-gray-900">Current role</span>
+              <span>{profile.accountType}</span>
+            </div>
+          </div>
 
-          <div className="mt-4 grid gap-3">
-            <StatRow label="Uploads submitted" value={profile.stats.uploadsSubmitted} />
-            <StatRow label="Reviews completed" value={profile.stats.reviewsCompleted} />
-            <StatRow label="Flags raised" value={profile.stats.flagsRaised} />
-            <StatRow label="Agreement rate" value={agreementLabel} />
+          {availableRoleRequests.length > 0 ? (
+            <form onSubmit={submitRoleRequest} className="mt-5 grid gap-3">
+              <label>
+                <span className="block text-sm font-semibold text-gray-900">Request role</span>
+                <select
+                  value={roleRequest.requestingAccount}
+                  onChange={(e) => setRoleRequest((prev) => ({ ...prev, requestingAccount: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+                >
+                  {availableRoleRequests.map((role) => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="block text-sm font-semibold text-gray-900">Reason</span>
+                <textarea
+                  value={roleRequest.reasonMessage}
+                  onChange={(e) => setRoleRequest((prev) => ({ ...prev, reasonMessage: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 min-h-[96px]"
+                  placeholder="Explain why this account access is needed."
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={isRequestingRole}
+                className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 transition disabled:opacity-60"
+              >
+                {isRequestingRole ? "Submitting..." : "Submit request"}
+              </button>
+            </form>
+          ) : (
+            <p className="mt-4 text-sm text-gray-600">No higher role is available to request.</p>
+          )}
+
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-gray-900">Recent requests</h3>
+            <div className="mt-3 grid gap-2">
+              {changeRequests.length === 0 ? (
+                <p className="text-sm text-gray-500">No account change requests yet.</p>
+              ) : (
+                changeRequests.slice(0, 3).map((request) => (
+                  <div key={request.id} className="rounded-xl border border-gray-200 bg-white p-3 text-sm">
+                    <div className="font-semibold text-gray-900">{request.requestingAccount}</div>
+                    <div className="mt-1 text-xs text-gray-500">{request.status}</div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       </section>
@@ -426,25 +409,27 @@ export default function Profile() {
   );
 }
 
-function Field({ label, value, onChange, placeholder }) {
+function Field({ label, value, onChange, placeholder, type = "text", disabled = false }) {
   return (
     <div>
       <label className="block text-sm font-semibold text-gray-900">{label}</label>
       <input
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+        disabled={disabled}
+        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 disabled:bg-gray-100 disabled:text-gray-500"
       />
     </div>
   );
 }
 
-function StatRow({ label, value }) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white p-3">
-      <div className="text-sm font-semibold text-gray-900">{label}</div>
-      <div className="text-sm font-semibold text-gray-900">{value}</div>
-    </div>
-  );
-}
+Field.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  onChange: PropTypes.func.isRequired,
+  placeholder: PropTypes.string.isRequired,
+  type: PropTypes.string,
+  disabled: PropTypes.bool,
+};

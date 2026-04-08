@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
-import { supabase } from "../supabaseClient";
+import { apiRequest, saveBackendSession } from "../utils/apiClient";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -41,51 +41,6 @@ export default function Signup() {
 
   const passwordChecks = useMemo(() => getPasswordChecks(form.password), [form.password]);
   const passwordStrong = Object.values(passwordChecks).every(Boolean);
-
-  async function ensureUserRows(user, fullName, email, phone) {
-    const { error: profileError } = await supabase.from("profiles").upsert(
-      {
-        id: user.id,
-        display_name: fullName,
-        email,
-        phone: phone || null,
-        role: "member",
-        affiliation: "Twins Through Time",
-        bio: "New account created.",
-      },
-      { onConflict: "id" }
-    );
-
-    if (profileError) throw profileError;
-
-    const { error: preferencesError } = await supabase
-      .from("profile_preferences")
-      .upsert(
-        {
-          user_id: user.id,
-          default_landing: "upload",
-          notifications: true,
-        },
-        { onConflict: "user_id" }
-      );
-
-    if (preferencesError) throw preferencesError;
-
-    const { error: statsError } = await supabase
-      .from("user_stats")
-      .upsert(
-        {
-          user_id: user.id,
-          uploads_submitted: 0,
-          reviews_completed: 0,
-          flags_raised: 0,
-          agreement_rate: null,
-        },
-        { onConflict: "user_id" }
-      );
-
-    if (statsError) throw statsError;
-  }
 
 async function handleSubmit(e) {
   e.preventDefault();
@@ -130,24 +85,25 @@ async function handleSubmit(e) {
 
   try {
     const email = form.email.trim().toLowerCase();
+    const nameParts = form.fullName.trim().split(/\s+/);
+    const firstName = nameParts[0] || "User";
+    const lastName = nameParts.slice(1).join(" ") || "Member";
+    const usernameBase = email.split("@")[0].replace(/[^a-zA-Z0-9_]/g, "").slice(0, 24) || "user";
+    const username = usernameBase.length >= 3 ? usernameBase : `${usernameBase}user`;
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password: form.password,
-      options: {
-        data: {
-          full_name: form.fullName.trim(),
-          phone: form.phone.trim() || null,
-        },
-      },
+    const backendSession = await apiRequest("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        username,
+        email,
+        password: form.password,
+        firstName,
+        lastName,
+      }),
     });
 
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    navigate("/login");
+    saveBackendSession(backendSession);
+    navigate("/profile");
   } catch (error) {
     setMessage(error?.message || "Something went wrong while creating your account.");
   } finally {
