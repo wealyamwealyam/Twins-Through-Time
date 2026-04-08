@@ -81,6 +81,9 @@ export const submitScrapeJob = async (req, res) => {
   );
   child.unref();
 
+  // processScrapeJob (JS fallback) is intentionally NOT called here.
+  // The Python worker above handles the full LLM + metadata extraction pipeline.
+
   return res.status(201).json(job);
 };
 

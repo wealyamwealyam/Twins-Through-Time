@@ -12,11 +12,12 @@
  */
 
 import jwt from 'jsonwebtoken';
+import { findById } from '../models/userModel.js';
 
 // Read lazily so dotenv.config() in server.js has already run.
 const getSecret = () => process.env.JWT_SECRET || 'change-me-in-production';
 
-const authenticate = (req, res, next) => {
+const authenticate = async (req, res, next) => {
   const authHeader = req.headers['authorization'] ?? '';
 
   if (!authHeader.startsWith('Bearer ')) {
@@ -33,7 +34,24 @@ const authenticate = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, getSecret());
-    req.user = decoded; // { id, username, accountType }
+
+    const user = await findById(decoded.id);
+    if (!user || !user.isActive) {
+      return res.status(401).json({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'User not found or deactivated.',
+          details: null,
+        },
+      });
+    }
+
+    req.user = {
+      ...decoded,
+      username: user.username,
+      accountType: user.accountType,
+    };
+
     next();
   } catch (err) {
     return res.status(401).json({

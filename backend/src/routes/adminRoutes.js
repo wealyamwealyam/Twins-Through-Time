@@ -9,6 +9,7 @@
  *   POST  /invite-link           generateInviteLink
  *   GET   /users                 listUsers
  *   PATCH /users/:id/deactivate  deactivateUser
+ *   PATCH /users/:id/reactivate  reactivateUser
  *   GET   /dashboard/stats       getDashboardStats
  */
 
@@ -19,6 +20,7 @@ import {
   generateInviteLink,
   listUsers,
   deactivateUser,
+  reactivateUser,
   getDashboardStats,
 } from '../controllers/adminController.js';
 
@@ -30,6 +32,7 @@ router.use(authenticate, authorize('admin'));
 router.post(  '/invite-link',           generateInviteLink);
 router.get(   '/users',                 listUsers);
 router.patch( '/users/:id/deactivate',  deactivateUser);
+router.patch( '/users/:id/reactivate',  reactivateUser);
 router.get(   '/dashboard/stats',       getDashboardStats);
 
 export default router;

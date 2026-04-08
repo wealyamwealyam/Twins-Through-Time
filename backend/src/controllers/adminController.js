@@ -7,6 +7,7 @@
  *   POST  /admin/invite-link         generateInviteLink
  *   GET   /admin/users               listUsers
  *   PATCH /admin/users/:id/deactivate deactivateUser
+ *   PATCH /admin/users/:id/reactivate reactivateUser
  *   GET   /admin/dashboard/stats     getDashboardStats
  */
 
@@ -147,6 +148,25 @@ export const deactivateUser = async (req, res) => {
 
   await updateUser(user.id, { isActive: false });
   return res.status(200).json({ id: user.id, isActive: false });
+};
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/users/:id/reactivate  🔴
+// ---------------------------------------------------------------------------
+export const reactivateUser = async (req, res) => {
+  const user = await findById(req.params.id);
+  if (!user) {
+    return res.status(404).json(errBody('NOT_FOUND', 'User not found.'));
+  }
+
+  if (user.isActive) {
+    return res.status(422).json(
+      errBody('UNPROCESSABLE', 'User is already active.')
+    );
+  }
+
+  await updateUser(user.id, { isActive: true });
+  return res.status(200).json({ id: user.id, isActive: true });
 };
 
 // ---------------------------------------------------------------------------
