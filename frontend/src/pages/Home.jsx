@@ -1,5 +1,15 @@
 
 import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { getScrapeJobs } from "../services/scrapeJobService";
+
+const STATUS_LABEL = {
+  queued: "Queued",
+  running: "Running",
+  completed: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
 
 export function Home() {
   const steps = [
@@ -21,14 +31,44 @@ export function Home() {
     },
   ];
 
-  // Placeholder data (wire to backend later)
-  const systemStatus = {
-    scraper: { label: "Mock", value: "Online" },
-    queue: { label: "Mock", value: "0 running • 0 pending" },
-    lastRun: { label: "Mock", value: "—" },
-  };
+  const [jobs, setJobs] = useState([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [healthStatus, setHealthStatus] = useState(null);
 
-  const recentRuns = []; // empty-state for now
+  useEffect(() => {
+    // Fetch recent scrape jobs
+    getScrapeJobs({ limit: 5 })
+      .then((data) => setJobs(data.jobs ?? data ?? []))
+      .catch(() => setJobs([]))
+      .finally(() => setJobsLoading(false));
+
+    // Fetch backend health
+    fetch(`${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000"}/api/health`)
+      .then((r) => r.json())
+      .then((data) => setHealthStatus(data))
+      .catch(() => setHealthStatus(null));
+  }, []);
+
+  const running = jobs.filter((j) => j.status === "running").length;
+  const queued = jobs.filter((j) => j.status === "queued").length;
+  const lastCompleted = jobs.find((j) => j.status === "completed");
+
+  const systemStatus = {
+    scraper: {
+      label: healthStatus ? "Live" : "—",
+      value: healthStatus?.status === "ok" ? "Online" : healthStatus ? "Degraded" : "Unknown",
+    },
+    queue: {
+      label: "Live",
+      value: jobsLoading ? "Loading…" : `${running} running • ${queued} pending`,
+    },
+    lastRun: {
+      label: lastCompleted ? "Live" : "—",
+      value: lastCompleted
+        ? new Date(lastCompleted.createdAt ?? lastCompleted.created_at).toLocaleDateString()
+        : "—",
+    },
+  };
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -61,7 +101,7 @@ export function Home() {
             </div>
 
             <div className="mt-4 text-xs text-gray-500">
-              Login & roles coming soon • This sprint focuses on the interface & workflow
+              Connected to the live backend API
             </div>
           </div>
 
@@ -88,7 +128,7 @@ export function Home() {
             </div>
 
             <div className="mt-4 text-xs text-gray-500">
-              These values are placeholders for now and will be connected to backend health endpoints.
+              Live data from the backend health endpoint and job queue.
             </div>
           </div>
         </div>
@@ -132,7 +172,9 @@ export function Home() {
             </Link>
           </div>
 
-          {recentRuns.length === 0 ? (
+          {jobsLoading ? (
+            <div className="mt-6 text-center text-sm text-gray-500">Loading…</div>
+          ) : jobs.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center">
               <p className="text-sm font-semibold text-gray-900">No runs yet</p>
               <p className="mt-2 text-sm text-gray-600">
@@ -149,19 +191,23 @@ export function Home() {
             </div>
           ) : (
             <div className="mt-4 divide-y divide-gray-100">
-              {recentRuns.map((run) => (
-                <div key={run.id} className="py-4 flex items-start justify-between gap-4">
+              {jobs.map((job) => (
+                <div key={job.id} className="py-4 flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-sm font-semibold text-gray-900">{run.title}</div>
+                    <div className="text-sm font-semibold text-gray-900 truncate max-w-xs">
+                      {job.sourceUrl ?? job.source_url ?? "Scrape job"}
+                    </div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {run.date} • {run.source}
+                      {job.createdAt || job.created_at
+                        ? new Date(job.createdAt ?? job.created_at).toLocaleDateString()
+                        : "—"}
                     </div>
                     <div className="text-xs text-gray-600 mt-1">
-                      {run.imagesFound} images • {run.flagged} flagged
+                      {job.totalPhotos ?? job.total_photos ?? 0} photos found
                     </div>
                   </div>
-                  <span className="text-xs font-semibold px-3 py-1 rounded-full bg-gray-100 text-gray-900">
-                    {run.status}
+                  <span className="text-xs font-semibold px-3 py-1 rounded-full bg-gray-100 text-gray-900 shrink-0">
+                    {STATUS_LABEL[job.status] ?? job.status}
                   </span>
                 </div>
               ))}
@@ -181,12 +227,12 @@ export function Home() {
             />
             <QuickCard
               title="History"
-              desc="Review previous runs and decisions (wire up later)."
+              desc="Review previous runs and photo decisions."
               to="/history"
             />
             <QuickCard
               title="Profile"
-              desc="Login, roles, and permissions (coming soon)."
+              desc="Manage your account settings and preferences."
               to="/profile"
             />
           </div>

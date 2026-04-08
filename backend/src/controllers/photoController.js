@@ -39,7 +39,7 @@ const errBody = (code, message, details = null) => ({
 // ---------------------------------------------------------------------------
 // GET /photos  🔒
 // ---------------------------------------------------------------------------
-export const listPhotos = (req, res) => {
+export const listPhotos = async (req, res) => {
   const { scrapeJobId, status, isDuplicate, tags, page, limit } = req.query;
   const { id: userId, accountType } = req.user;
 
@@ -64,7 +64,7 @@ export const listPhotos = (req, res) => {
   // Parse comma-separated tags
   const tagFilter = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
 
-  const result = findPhotos({
+  const result = await findPhotos({
     submittedBy,
     scrapeJobId: scrapeJobId || undefined,
     status:      status      || undefined,
@@ -80,8 +80,8 @@ export const listPhotos = (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /photos/:id  🔒
 // ---------------------------------------------------------------------------
-export const getPhoto = (req, res) => {
-  const photo = findPhotoById(req.params.id);
+export const getPhoto = async (req, res) => {
+  const photo = await findPhotoById(req.params.id);
   if (!photo) {
     return res.status(404).json(errBody('NOT_FOUND', 'Photo not found.'));
   }
@@ -97,8 +97,8 @@ export const getPhoto = (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /photos/:id  🔒
 // ---------------------------------------------------------------------------
-export const updatePhotoMetadata = (req, res) => {
-  const photo = findPhotoById(req.params.id);
+export const updatePhotoMetadata = async (req, res) => {
+  const photo = await findPhotoById(req.params.id);
   if (!photo) {
     return res.status(404).json(errBody('NOT_FOUND', 'Photo not found.'));
   }
@@ -137,15 +137,15 @@ export const updatePhotoMetadata = (req, res) => {
   updates.metadataEditedBy  = req.user.id;
   updates.metadataEditedAt  = new Date().toISOString();
 
-  const updated = updatePhoto(photo.id, updates);
+  const updated = await updatePhoto(photo.id, updates);
   return res.status(200).json(updated);
 };
 
 // ---------------------------------------------------------------------------
 // PATCH /photos/:id/status  🔒
 // ---------------------------------------------------------------------------
-export const updatePhotoStatus = (req, res) => {
-  const photo = findPhotoById(req.params.id);
+export const updatePhotoStatus = async (req, res) => {
+  const photo = await findPhotoById(req.params.id);
   if (!photo) {
     return res.status(404).json(errBody('NOT_FOUND', 'Photo not found.'));
   }
@@ -166,15 +166,15 @@ export const updatePhotoStatus = (req, res) => {
     );
   }
 
-  const updated = updatePhoto(photo.id, { status });
+  const updated = await updatePhoto(photo.id, { status });
   return res.status(200).json(updated);
 };
 
 // ---------------------------------------------------------------------------
 // PATCH /photos/:id/duplicate  🔒
 // ---------------------------------------------------------------------------
-export const updatePhotoDuplicate = (req, res) => {
-  const photo = findPhotoById(req.params.id);
+export const updatePhotoDuplicate = async (req, res) => {
+  const photo = await findPhotoById(req.params.id);
   if (!photo) {
     return res.status(404).json(errBody('NOT_FOUND', 'Photo not found.'));
   }
@@ -197,7 +197,7 @@ export const updatePhotoDuplicate = (req, res) => {
         errBody('VALIDATION_ERROR', '`duplicateOfId` is required when `isDuplicate` is true.')
       );
     }
-    if (!findPhotoById(duplicateOfId)) {
+    if (!await findPhotoById(duplicateOfId)) {
       return res.status(404).json(
         errBody('NOT_FOUND', 'The photo referenced by `duplicateOfId` was not found.')
       );
@@ -209,7 +209,7 @@ export const updatePhotoDuplicate = (req, res) => {
     }
   }
 
-  const updated = updatePhoto(photo.id, {
+  const updated = await updatePhoto(photo.id, {
     isDuplicate,
     duplicateOfId: isDuplicate ? duplicateOfId : null,
   });
@@ -220,8 +220,8 @@ export const updatePhotoDuplicate = (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /photos/:id/download  🔒
 // ---------------------------------------------------------------------------
-export const getDownloadUrl = (req, res) => {
-  const photo = findPhotoById(req.params.id);
+export const getDownloadUrl = async (req, res) => {
+  const photo = await findPhotoById(req.params.id);
   if (!photo) {
     return res.status(404).json(errBody('NOT_FOUND', 'Photo not found.'));
   }

@@ -1,95 +1,128 @@
 /**
  * accountChangeRequestModel.js
  * ----------------------------
- * In-memory store for AccountChangeRequest objects.
- * Replace with a real DB (Prisma / Mongoose) when one is connected.
+ * Supabase-backed store for AccountChangeRequest objects.
  *
- * Shape of an AccountChangeRequest:
- * {
- *   id               : uuid
- *   userId           : uuid          – the requesting user
- *   currentAccount   : string        – role at time of submission
- *   requestingAccount: string        – 'contributor' | 'admin'
- *   reasonMessage    : string
- *   status           : 'pending' | 'approved' | 'rejected'
- *   adminNote        : string | null – set on approve/reject
- *   reviewedBy       : uuid   | null – admin who acted
- *   reviewedAt       : ISO    | null
- *   createdAt        : ISO
- *   updatedAt        : ISO
- * }
+ * Table: account_change_requests
+ * Columns: id (uuid pk), user_id, current_account, requesting_account,
+ *          reason_message, status, admin_note, reviewed_by, reviewed_at,
+ *          created_at, updated_at
  */
 
-import { randomUUID } from 'crypto';
+import { supabase } from '../config/supabase.js';
 
 // ---------------------------------------------------------------------------
-// In-memory store
+// Column mapping helpers
 // ---------------------------------------------------------------------------
-const requests = new Map(); // key: uuid → AccountChangeRequest
+
+const toDb = (obj) => ({
+  ...(obj.userId             !== undefined && { user_id:            obj.userId }),
+  ...(obj.currentAccount     !== undefined && { current_account:    obj.currentAccount }),
+  ...(obj.requestingAccount  !== undefined && { requesting_account: obj.requestingAccount }),
+  ...(obj.reasonMessage      !== undefined && { reason_message:     obj.reasonMessage }),
+  ...(obj.status             !== undefined && { status:             obj.status }),
+  ...(obj.adminNote          !== undefined && { admin_note:         obj.adminNote }),
+  ...(obj.reviewedBy         !== undefined && { reviewed_by:        obj.reviewedBy }),
+  ...(obj.reviewedAt         !== undefined && { reviewed_at:        obj.reviewedAt }),
+});
+
+const fromDb = (row) => {
+  if (!row) return null;
+  return {
+    id:                row.id,
+    userId:            row.user_id,
+    currentAccount:    row.current_account,
+    requestingAccount: row.requesting_account,
+    reasonMessage:     row.reason_message,
+    status:            row.status,
+    adminNote:         row.admin_note,
+    reviewedBy:        row.reviewed_by,
+    reviewedAt:        row.reviewed_at,
+    createdAt:         row.created_at,
+    updatedAt:         row.updated_at,
+  };
+};
 
 // ---------------------------------------------------------------------------
 // CRUD helpers
 // ---------------------------------------------------------------------------
 
 /** Create and persist a new request. Returns the stored object. */
-export const createRequest = ({
+export const createRequest = async ({
   userId,
   currentAccount,
   requestingAccount,
   reasonMessage,
 }) => {
-  const now = new Date().toISOString();
-  const req = {
-    id: randomUUID(),
-    userId,
-    currentAccount,
-    requestingAccount,
-    reasonMessage,
-    status: 'pending',
-    adminNote: null,
-    reviewedBy: null,
-    reviewedAt: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-  requests.set(req.id, req);
-  return req;
+  const { data, error } = await supabase
+    .from('account_change_requests')
+    .insert([toDb({
+      userId, currentAccount, requestingAccount, reasonMessage,
+      status: 'pending', adminNote: null, reviewedBy: null, reviewedAt: null,
+    })])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return fromDb(data);
 };
 
 /** Return a request by id, or null. */
-export const findRequestById = (id) => requests.get(id) ?? null;
+export const findRequestById = async (id) => {
+  const { data, error } = await supabase
+    .from('account_change_requests')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) return null;
+  return fromDb(data);
+};
 
 /**
- * Return all requests, with optional status filter.
- * Supports pagination via `page` (1-based) and `limit`.
+ * Return all requests, with optional status filter and pagination.
  */
-export const findAllRequests = ({ status, page = 1, limit = 20 } = {}) => {
-  let all = [...requests.values()];
-  if (status) all = all.filter((r) => r.status === status);
-  const total = all.length;
+export const findAllRequests = async ({ status, page = 1, limit = 20 } = {}) => {
   const safeLimit = Math.min(Math.max(1, limit), 100);
   const safePage  = Math.max(1, page);
-  const data = all.slice((safePage - 1) * safeLimit, safePage * safeLimit);
-  return { data, total, page: safePage, limit: safeLimit };
+
+  let query = supabase
+    .from('account_change_requests')
+    .select('*', { count: 'exact' });
+
+  if (status) query = query.eq('status', status);
+
+  query = query.range((safePage - 1) * safeLimit, safePage * safeLimit - 1);
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  return { data: (data ?? []).map(fromDb), total: count ?? 0, page: safePage, limit: safeLimit };
 };
 
 /** Return all requests belonging to a specific user. */
-export const findRequestsByUserId = (userId) =>
-  [...requests.values()].filter((r) => r.userId === userId);
+export const findRequestsByUserId = async (userId) => {
+  const { data, error } = await supabase
+    .from('account_change_requests')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  return (data ?? []).map(fromDb);
+};
 
 /**
  * Partially update a request.
  * Returns the updated request, or null if not found.
  */
-export const updateRequest = (id, updates) => {
-  const existing = requests.get(id);
-  if (!existing) return null;
-  const updated = {
-    ...existing,
-    ...updates,
-    id,
-    updatedAt: new Date().toISOString(),
-  };
-  requests.set(id, updated);
-  return updated;
+export const updateRequest = async (id, updates) => {
+  const { data, error } = await supabase
+    .from('account_change_requests')
+    .update(toDb(updates))
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) return null;
+  return fromDb(data);
 };

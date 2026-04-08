@@ -37,7 +37,7 @@ const errBody = (code, message, details = null) => ({
 // ---------------------------------------------------------------------------
 // POST /account-change-requests  🔒
 // ---------------------------------------------------------------------------
-export const submitRequest = (req, res) => {
+export const submitRequest = async (req, res) => {
   const { requestingAccount, reasonMessage } = req.body ?? {};
 
   // ── Validate requestingAccount ──────────────────────────────────────────
@@ -71,41 +71,31 @@ export const submitRequest = (req, res) => {
   const { id: userId, accountType: currentAccount } = req.user;
   if (requestingAccount === currentAccount) {
     return res.status(422).json(
-      errBody(
-        'UNPROCESSABLE',
-        `Your account is already \`${currentAccount}\`.`
-      )
+      errBody('UNPROCESSABLE', `Your account is already \`${currentAccount}\`.`)
     );
   }
 
   // ── Business rule: community_member can only request contributor ────────
-  //    contributor can only request admin
   const hierarchy = ['community_member', 'contributor', 'admin'];
-  const currentIdx  = hierarchy.indexOf(currentAccount);
+  const currentIdx   = hierarchy.indexOf(currentAccount);
   const requestedIdx = hierarchy.indexOf(requestingAccount);
   if (requestedIdx <= currentIdx) {
     return res.status(422).json(
-      errBody(
-        'UNPROCESSABLE',
-        'You may only request a role that is higher than your current role.'
-      )
+      errBody('UNPROCESSABLE', 'You may only request a role that is higher than your current role.')
     );
   }
 
   // ── Business rule: no duplicate pending requests ────────────────────────
-  const existing = findRequestsByUserId(userId).find(
+  const existing = (await findRequestsByUserId(userId)).find(
     (r) => r.status === 'pending' && r.requestingAccount === requestingAccount
   );
   if (existing) {
     return res.status(409).json(
-      errBody(
-        'CONFLICT',
-        `You already have a pending request for \`${requestingAccount}\`.`
-      )
+      errBody('CONFLICT', `You already have a pending request for \`${requestingAccount}\`.`)
     );
   }
 
-  const newRequest = createRequest({
+  const newRequest = await createRequest({
     userId,
     currentAccount,
     requestingAccount,
@@ -118,19 +108,16 @@ export const submitRequest = (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /account-change-requests  🔴  (admin only)
 // ---------------------------------------------------------------------------
-export const listRequests = (req, res) => {
+export const listRequests = async (req, res) => {
   const { status, page, limit } = req.query;
 
   if (status && !['pending', 'approved', 'rejected'].includes(status)) {
     return res.status(400).json(
-      errBody(
-        'VALIDATION_ERROR',
-        '`status` must be one of: pending, approved, rejected.'
-      )
+      errBody('VALIDATION_ERROR', '`status` must be one of: pending, approved, rejected.')
     );
   }
 
-  const result = findAllRequests({
+  const result = await findAllRequests({
     status: status || undefined,
     page:  page  ? parseInt(page,  10) : 1,
     limit: limit ? parseInt(limit, 10) : 20,
@@ -142,20 +129,18 @@ export const listRequests = (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /account-change-requests/me  🔒
 // ---------------------------------------------------------------------------
-export const getOwnRequests = (req, res) => {
-  const requests = findRequestsByUserId(req.user.id);
+export const getOwnRequests = async (req, res) => {
+  const requests = await findRequestsByUserId(req.user.id);
   return res.status(200).json(requests);
 };
 
 // ---------------------------------------------------------------------------
 // GET /account-change-requests/:id  🔴  (admin only)
 // ---------------------------------------------------------------------------
-export const getRequestById = (req, res) => {
-  const request = findRequestById(req.params.id);
+export const getRequestById = async (req, res) => {
+  const request = await findRequestById(req.params.id);
   if (!request) {
-    return res.status(404).json(
-      errBody('NOT_FOUND', 'Account change request not found.')
-    );
+    return res.status(404).json(errBody('NOT_FOUND', 'Account change request not found.'));
   }
   return res.status(200).json(request);
 };
@@ -163,42 +148,32 @@ export const getRequestById = (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /account-change-requests/:id  🔴  (admin only)
 // ---------------------------------------------------------------------------
-export const reviewRequest = (req, res) => {
+export const reviewRequest = async (req, res) => {
   const { status } = req.body ?? {};
 
   if (!status) {
-    return res.status(400).json(
-      errBody('VALIDATION_ERROR', '`status` is required.')
-    );
+    return res.status(400).json(errBody('VALIDATION_ERROR', '`status` is required.'));
   }
   if (!ALLOWED_REVIEW_STATUSES.includes(status)) {
     return res.status(400).json(
-      errBody(
-        'VALIDATION_ERROR',
-        `\`status\` must be one of: ${ALLOWED_REVIEW_STATUSES.join(', ')}.`
-      )
+      errBody('VALIDATION_ERROR', `\`status\` must be one of: ${ALLOWED_REVIEW_STATUSES.join(', ')}.`)
     );
   }
 
-  const request = findRequestById(req.params.id);
+  const request = await findRequestById(req.params.id);
   if (!request) {
-    return res.status(404).json(
-      errBody('NOT_FOUND', 'Account change request not found.')
-    );
+    return res.status(404).json(errBody('NOT_FOUND', 'Account change request not found.'));
   }
 
   if (request.status !== 'pending') {
     return res.status(422).json(
-      errBody(
-        'UNPROCESSABLE',
-        `This request has already been \`${request.status}\` and cannot be changed.`
-      )
+      errBody('UNPROCESSABLE', `This request has already been \`${request.status}\` and cannot be changed.`)
     );
   }
 
   const now = new Date().toISOString();
 
-  const updated = updateRequest(request.id, {
+  const updated = await updateRequest(request.id, {
     status,
     reviewedBy: req.user.id,
     reviewedAt: now,
@@ -206,7 +181,7 @@ export const reviewRequest = (req, res) => {
 
   // ── On approval: promote the user's accountType ────────────────────────
   if (status === 'approved') {
-    updateUser(request.userId, { accountType: request.requestingAccount });
+    await updateUser(request.userId, { accountType: request.requestingAccount });
   }
 
   return res.status(200).json(updated);

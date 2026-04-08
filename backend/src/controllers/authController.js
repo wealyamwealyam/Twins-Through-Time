@@ -78,18 +78,18 @@ export const register = async (req, res) => {
       return res.status(400).json(errBody('VALIDATION_ERROR', 'password must be at least 8 characters.'));
     }
 
-    if (findByEmail(email)) {
+    if (await findByEmail(email)) {
       return res.status(409).json(errBody('CONFLICT', 'Email is already registered.'));
     }
-    if (findByUsername(username)) {
+    if (await findByUsername(username)) {
       return res.status(409).json(errBody('CONFLICT', 'Username is already taken.'));
     }
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const user = createUser({ username, email, passwordHash, firstName, lastName, age, gender });
+    const user = await createUser({ username, email, passwordHash, firstName, lastName, age, gender });
 
     if (requestContributor === true) {
-      createRequest({
+      await createRequest({
         userId:            user.id,
         currentAccount:    user.accountType,
         requestingAccount: 'contributor',
@@ -98,7 +98,7 @@ export const register = async (req, res) => {
     }
 
     const token        = issueAccessToken(user);
-    const refreshToken = createRefreshToken(user.id);
+    const refreshToken = await createRefreshToken(user.id);
 
     return res.status(201).json({
       user: { id: user.id, username: user.username, email: user.email, accountType: user.accountType },
@@ -136,18 +136,18 @@ export const registerAdminInvite = async (req, res) => {
     if (typeof password !== 'string' || password.length < 8) {
       return res.status(400).json(errBody('VALIDATION_ERROR', 'password must be at least 8 characters.'));
     }
-    if (findByEmail(email)) {
+    if (await findByEmail(email)) {
       return res.status(409).json(errBody('CONFLICT', 'Email is already registered.'));
     }
-    if (findByUsername(username)) {
+    if (await findByUsername(username)) {
       return res.status(409).json(errBody('CONFLICT', 'Username is already taken.'));
     }
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const user = createUser({ username, email, passwordHash, firstName, lastName, accountType: 'admin' });
+    const user = await createUser({ username, email, passwordHash, firstName, lastName, accountType: 'admin' });
 
     const token        = issueAccessToken(user);
-    const refreshToken = createRefreshToken(user.id);
+    const refreshToken = await createRefreshToken(user.id);
 
     return res.status(201).json({
       user: { id: user.id, username: user.username, email: user.email, accountType: user.accountType },
@@ -170,7 +170,7 @@ export const login = async (req, res) => {
       return res.status(400).json(errBody('VALIDATION_ERROR', 'email and password are required.'));
     }
 
-    const user = findByEmail(email);
+    const user = await findByEmail(email);
 
     // Deliberate: same message for unknown user vs wrong password (user enumeration prevention)
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
@@ -181,7 +181,7 @@ export const login = async (req, res) => {
     }
 
     const token        = issueAccessToken(user);
-    const refreshToken = createRefreshToken(user.id);
+    const refreshToken = await createRefreshToken(user.id);
 
     return res.status(200).json({
       token,
@@ -222,14 +222,14 @@ export const loginGoogle = async (req, res) => {
       return res.status(401).json(errBody('UNAUTHORIZED', 'Google token did not include an email.'));
     }
 
-    let user = findByEmail(email);
+    let user = await findByEmail(email);
     let isNewUser = false;
 
     if (!user) {
       // Auto-register from Google profile
       const base     = (given_name || 'user').toLowerCase().replace(/\s+/g, '') + sub.slice(-4);
-      const username = findByUsername(base) ? base + randomUUID().slice(0, 4) : base;
-      user = createUser({
+      const username = await findByUsername(base) ? base + randomUUID().slice(0, 4) : base;
+      user = await createUser({
         username,
         email,
         passwordHash: '',           // no native password for OAuth accounts
@@ -244,7 +244,7 @@ export const loginGoogle = async (req, res) => {
     }
 
     const token        = issueAccessToken(user);
-    const refreshToken = createRefreshToken(user.id);
+    const refreshToken = await createRefreshToken(user.id);
 
     return res.status(200).json({
       token,
@@ -261,22 +261,22 @@ export const loginGoogle = async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /auth/refresh  🔓
 // ---------------------------------------------------------------------------
-export const refreshAccessToken = (req, res) => {
+export const refreshAccessToken = async (req, res) => {
   const { refreshToken } = req.body ?? {};
   if (!refreshToken) {
     return res.status(400).json(errBody('VALIDATION_ERROR', 'refreshToken is required.'));
   }
 
-  const entry = findRefreshToken(refreshToken);
+  const entry = await findRefreshToken(refreshToken);
   if (!entry) {
     return res.status(401).json(errBody('UNAUTHORIZED', 'Invalid or expired refresh token.'));
   }
   if (new Date(entry.expiresAt) < new Date()) {
-    deleteRefreshToken(refreshToken);
+    await deleteRefreshToken(refreshToken);
     return res.status(401).json(errBody('UNAUTHORIZED', 'Refresh token has expired.'));
   }
 
-  const user = findById(entry.userId);
+  const user = await findById(entry.userId);
   if (!user || !user.isActive) {
     return res.status(401).json(errBody('UNAUTHORIZED', 'User not found or deactivated.'));
   }
@@ -287,15 +287,15 @@ export const refreshAccessToken = (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /auth/forgot-password  🔓
 // ---------------------------------------------------------------------------
-export const forgotPassword = (req, res) => {
+export const forgotPassword = async (req, res) => {
   const { email } = req.body ?? {};
   if (!email) {
     return res.status(400).json(errBody('VALIDATION_ERROR', 'email is required.'));
   }
 
-  const user = findByEmail(email);
+  const user = await findByEmail(email);
   if (user && user.isActive) {
-    const resetToken = createResetToken(user.id);
+    const resetToken = await createResetToken(user.id);
     // Production: send an email with a link containing the resetToken.
     // For now, log it so tests can read it from server output.
     console.log(`[auth] password-reset token for ${email}: ${resetToken}`);
@@ -318,7 +318,7 @@ export const resetPassword = async (req, res) => {
       return res.status(400).json(errBody('VALIDATION_ERROR', 'newPassword must be at least 8 characters.'));
     }
 
-    const entry = findResetToken(resetToken);
+    const entry = await findResetToken(resetToken);
     if (!entry || entry.used) {
       return res.status(400).json(errBody('VALIDATION_ERROR', 'Invalid or already-used reset token.'));
     }
@@ -327,8 +327,8 @@ export const resetPassword = async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
-    updateUser(entry.userId, { passwordHash });
-    markResetTokenUsed(resetToken);
+    await updateUser(entry.userId, { passwordHash });
+    await markResetTokenUsed(resetToken);
 
     return res.status(200).json({ message: 'Password successfully reset.' });
   } catch (err) {
@@ -340,8 +340,8 @@ export const resetPassword = async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /auth/logout  🔒
 // ---------------------------------------------------------------------------
-export const logout = (req, res) => {
+export const logout = async (req, res) => {
   const { refreshToken } = req.body ?? {};
-  if (refreshToken) deleteRefreshToken(refreshToken);
+  if (refreshToken) await deleteRefreshToken(refreshToken);
   return res.status(204).send();
 };

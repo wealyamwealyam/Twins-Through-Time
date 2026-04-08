@@ -1,24 +1,55 @@
 /**
  * userModel.js
  * -----------
- * In-memory user store. Replace with a real database (e.g. Mongoose / Prisma)
- * when a DB is connected. The shape of every user object matches the Account API
- * response documented in docs/apis.md.
+ * Supabase-backed user store.
+ * Table: users
+ * Columns: id (uuid pk), username, email, password_hash, first_name,
+ *          last_name, account_type, age, gender, is_active,
+ *          created_at, updated_at
  */
 
-import { randomUUID } from 'crypto';
+import { supabase } from '../config/supabase.js';
 
 // ---------------------------------------------------------------------------
-// In-memory store
+// Column mapping helpers (DB snake_case ↔ JS camelCase)
 // ---------------------------------------------------------------------------
-const users = new Map(); // key: uuid, value: user object
+
+const toDb = (obj) => ({
+  ...(obj.username       !== undefined && { username:       obj.username }),
+  ...(obj.email          !== undefined && { email:          obj.email }),
+  ...(obj.passwordHash   !== undefined && { password_hash:  obj.passwordHash }),
+  ...(obj.firstName      !== undefined && { first_name:     obj.firstName }),
+  ...(obj.lastName       !== undefined && { last_name:      obj.lastName }),
+  ...(obj.accountType    !== undefined && { account_type:   obj.accountType }),
+  ...(obj.age            !== undefined && { age:            obj.age }),
+  ...(obj.gender         !== undefined && { gender:         obj.gender }),
+  ...(obj.isActive       !== undefined && { is_active:      obj.isActive }),
+});
+
+const fromDb = (row) => {
+  if (!row) return null;
+  return {
+    id:           row.id,
+    username:     row.username,
+    email:        row.email,
+    passwordHash: row.password_hash,
+    firstName:    row.first_name,
+    lastName:     row.last_name,
+    accountType:  row.account_type,
+    age:          row.age,
+    gender:       row.gender,
+    isActive:     row.is_active,
+    createdAt:    row.created_at,
+    updatedAt:    row.updated_at,
+  };
+};
 
 // ---------------------------------------------------------------------------
-// Helpers
+// CRUD helpers
 // ---------------------------------------------------------------------------
 
 /** Create and store a new user. Returns the stored user (with hashed password). */
-export const createUser = ({
+export const createUser = async ({
   username,
   email,
   passwordHash,
@@ -28,58 +59,74 @@ export const createUser = ({
   gender = null,
   accountType = 'community_member',
 }) => {
-  const user = {
-    id: randomUUID(),
-    username,
-    email,
-    passwordHash,        // never returned in responses — stripped by toPublic()
-    firstName,
-    lastName,
-    accountType,         // 'community_member' | 'contributor' | 'admin'
-    age,
-    gender,
-    isActive: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  users.set(user.id, user);
-  return user;
+  const { data, error } = await supabase
+    .from('users')
+    .insert([toDb({ username, email, passwordHash, firstName, lastName, age, gender, accountType, isActive: true })])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return fromDb(data);
 };
 
 /** Return a user by id, or null. */
-export const findById = (id) => users.get(id) ?? null;
+export const findById = async (id) => {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) return null;
+  return fromDb(data);
+};
 
 /** Return a user by email (case-insensitive), or null. */
-export const findByEmail = (email) =>
-  [...users.values()].find(
-    (u) => u.email.toLowerCase() === email.toLowerCase()
-  ) ?? null;
+export const findByEmail = async (email) => {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .ilike('email', email)
+    .maybeSingle();
+
+  if (error) return null;
+  return fromDb(data);
+};
 
 /** Return a user by username (case-insensitive), or null. */
-export const findByUsername = (username) =>
-  [...users.values()].find(
-    (u) => u.username.toLowerCase() === username.toLowerCase()
-  ) ?? null;
+export const findByUsername = async (username) => {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .ilike('username', username)
+    .maybeSingle();
+
+  if (error) return null;
+  return fromDb(data);
+};
 
 /** Return all users. */
-export const findAll = () => [...users.values()];
+export const findAll = async () => {
+  const { data, error } = await supabase.from('users').select('*');
+  if (error) throw error;
+  return (data ?? []).map(fromDb);
+};
 
 /**
  * Partially update a user by id.
  * Only the fields present in `updates` are changed.
  * Returns the updated user, or null if not found.
  */
-export const updateUser = (id, updates) => {
-  const user = users.get(id);
-  if (!user) return null;
-  const updated = {
-    ...user,
-    ...updates,
-    id,                            // id is immutable
-    updatedAt: new Date().toISOString(),
-  };
-  users.set(id, updated);
-  return updated;
+export const updateUser = async (id, updates) => {
+  const { data, error } = await supabase
+    .from('users')
+    .update(toDb(updates))
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) return null;
+  return fromDb(data);
 };
 
 /**
