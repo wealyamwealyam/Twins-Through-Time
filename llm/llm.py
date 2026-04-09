@@ -46,14 +46,19 @@ jsonFormat = {
     "Middle Name or Initial": "value",
     "Last Name": "value",
     "Military Unit": "value",
+    "Regiment Number": "value",
+    "Regiment State": "value",
+    "Branch": "value",
+    "Company": "value",
     "Age": 0,
     "Year Born": 0,
+    "Transcript": "value",
     "Confidence": 0.0,
     "Source": "https://example.com/source-page",
     "Other": {
         "other1": "value",
         "other2": "value",
-    },
+    }
 }
 
 
@@ -62,15 +67,20 @@ jsonKey = {
     "First Name": "The first name of the soldier.",
     "Middle Name or Initial": "The middle name or middle initial of the soldier.",
     "Last Name": "The last name of the soldier.",
-    "Military Unit": "The military unit the soldier served in.",
+    "Military Unit": "The military unit the soldier served in. The full unit name.",
+    "Regiment Number": "The regiment number part of the military unit.",
+    "Regiment State": "The regiment state part of the military unit.",
+    "Branch": "The branch of the military unit.",
+    "Company": "The company (regiment subunit) of the military unit.",
     "Age": "The age of the soldier at the time described, if known.",
     "Year Born": "The year the soldier was born, if known.",
+    "Transcript": "Any writing that was found on the physical photo.",
     "Confidence": "Numeric confidence from 0.0 to 1.0 (downstream scoring may override this value).",
     "Source": "The page URL where this image record was found.",
     "Other": {
         "": "Any other useful fact. Replace the key with a descriptive key.",
         "": "Facts in Other should be short and specific, not long paragraphs.",
-    },
+    }
 }
 
 
