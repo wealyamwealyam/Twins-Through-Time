@@ -12,6 +12,7 @@
  */
 
 import { spawn } from 'child_process';
+import { openSync, mkdirSync } from 'fs';
 
 import { validateScrapeUrl } from '../utils/validators.js';
 import {
@@ -56,30 +57,43 @@ export const submitScrapeJob = async (req, res) => {
 
   // Spawn the Python scraper worker in the background.
   // It will PATCH job status and POST photos back via the internal API.
-  const projectRoot = new URL('../../../..', import.meta.url).pathname;
-  const pythonBin   = process.env.PYTHON_BIN   || 'python3';
-  const scraperPath = process.env.SCRAPER_PATH  || 'scraping/scraper.py';
-  const apiUrl      = process.env.INTERNAL_API_URL || 'http://localhost:3000';
-  const workerSecret = process.env.WORKER_SECRET || '';
+  const projectRoot  = new URL('../../..', import.meta.url).pathname;
+  const pythonBin    = process.env.PYTHON_BIN      || 'python3';
+  const scraperPath  = process.env.SCRAPER_PATH    || 'scraping/scraper.py';
+  const apiUrl       = process.env.INTERNAL_API_URL || 'http://localhost:3000';
+  const workerSecret = process.env.WORKER_SECRET   || '';
 
-  const child = spawn(
-    pythonBin,
-    [
-      scraperPath,
-      '--job-id', job.id,
-      '--url',    job.url,
-      '--limit',  String(job.maxPhotos),
-      '--api-url', apiUrl,
-      '--api-key', workerSecret,
-    ],
-    {
-      cwd:      projectRoot,
-      detached: true,
-      stdio:    'ignore',
-      env:      { ...process.env },
-    },
-  );
-  child.unref();
+  try {
+    // Log worker stdout/stderr to scraping/logs/<job-id>.log for debugging
+    const logsDir = `${projectRoot}/scraping/logs`;
+    mkdirSync(logsDir, { recursive: true });
+    const logFd = openSync(`${logsDir}/${job.id}.log`, 'a');
+
+    const child = spawn(
+      pythonBin,
+      [
+        scraperPath,
+        '--job-id', job.id,
+        '--url',    job.url,
+        '--limit',  String(job.maxPhotos),
+        '--api-url', apiUrl,
+        '--api-key', workerSecret,
+      ],
+      {
+        cwd:      projectRoot,
+        detached: true,
+        stdio:    ['ignore', logFd, logFd],
+        env:      { ...process.env },
+      },
+    );
+    child.on('error', (err) => {
+      console.error(`[worker] spawn error for job ${job.id}:`, err.message);
+    });
+    child.unref();
+    console.log(`[worker] spawned pid=${child.pid} for job ${job.id}`);
+  } catch (err) {
+    console.error(`[worker] failed to spawn worker for job ${job.id}:`, err.message);
+  }
 
   // processScrapeJob (JS fallback) is intentionally NOT called here.
   // The Python worker above handles the full LLM + metadata extraction pipeline.

@@ -2,8 +2,15 @@ import { Link, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 
 import MetadataReviewPopup from "../components/MetadataPopup";
+import OnboardingSubmitModal from "../components/OnboardingSubmitModal";
 import Record from "../components/Record";
 import { apiRequest, getBackendSession } from "../utils/apiClient";
+import {
+  createOnboardingRequest,
+  getOnboardingRequests,
+  updateOnboardingRequest,
+  deleteOnboardingRequest,
+} from "../services/onboardingRequestService";
 
 function toReviewImage(photo) {
   return {
@@ -47,6 +54,13 @@ export default function HistoryFolder() {
   const [isLoading, setIsLoading] = useState(true);
   const [reviewImages, setReviewImages] = useState([]);
   const [openReview, setOpenReview] = useState(false);
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  const [onboardingSuccessBanner, setOnboardingSuccessBanner] = useState(false);
+  const [onboardingError, setOnboardingError] = useState("");
+  // Existing onboarding request for this job (null = none, object = found)
+  const [existingRequest, setExistingRequest] = useState(null);
+  // Whether the edit modal is open (re-uses OnboardingSubmitModal)
+  const [showEditModal, setShowEditModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,14 +73,23 @@ export default function HistoryFolder() {
       }
 
       try {
-        const [jobData, photosData] = await Promise.all([
+        const [jobData, photosData, requestsData] = await Promise.all([
           apiRequest(`/scrape-jobs/${jobId}`),
           apiRequest(`/photos?scrapeJobId=${encodeURIComponent(jobId)}&limit=100`),
+          getOnboardingRequests({ limit: 100 }).catch(() => null),
         ]);
 
         if (!cancelled) {
+          const fetchedPhotos = photosData?.data || [];
           setJob(jobData);
-          setPhotos(photosData?.data || []);
+          setPhotos(fetchedPhotos);
+
+          // Find an onboarding request whose photoIds overlap with this job's photos
+          const photoIdSet = new Set(fetchedPhotos.map((p) => p.id));
+          const match = (requestsData?.data || []).find((r) =>
+            r.photoIds?.some((pid) => photoIdSet.has(pid))
+          );
+          setExistingRequest(match ?? null);
         }
       } catch (error) {
         if (!cancelled) {
@@ -114,6 +137,56 @@ export default function HistoryFolder() {
     );
   }
 
+  async function openDirectOnboarding() {
+    setOnboardingError("");
+    setOnboardingSuccessBanner(false);
+
+    try {
+      // Mark every photo in this job as "reviewed" so the backend accepts them
+      await Promise.allSettled(
+        photos.map((photo) =>
+          apiRequest(`/photos/${photo.id}/status`, {
+            method: "PATCH",
+            body: JSON.stringify({ status: "reviewed" }),
+          })
+        )
+      );
+      setShowOnboardingModal(true);
+    } catch (err) {
+      setOnboardingError(err?.message || "Unable to prepare photos for submission.");
+    }
+  }
+
+  async function handleOnboardingSubmit(title, notes) {
+    const created = await createOnboardingRequest({
+      title,
+      notes,
+      photoIds: photos.map((p) => p.id),
+    });
+    setExistingRequest(created);
+    setShowOnboardingModal(false);
+    setOnboardingSuccessBanner(true);
+  }
+
+  async function handleOnboardingEdit(title, notes) {
+    const updated = await updateOnboardingRequest(existingRequest.id, { title, notes });
+    setExistingRequest(updated);
+    setShowEditModal(false);
+    setOnboardingSuccessBanner(true);
+  }
+
+  async function handleOnboardingDelete() {
+    setDeleting(true);
+    try {
+      await deleteOnboardingRequest(existingRequest.id);
+      setExistingRequest(null);
+      setShowDeleteConfirm(false);
+      setOnboardingSuccessBanner(false);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl p-6">
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -131,12 +204,78 @@ export default function HistoryFolder() {
           </div>
 
           {job ? (
-            <span className="rounded-full border bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-700">
-              {job.status}
-            </span>
+            <div className="flex flex-col items-end gap-2 shrink-0">
+              <span className="rounded-full border bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-700">
+                {job.status}
+              </span>
+              {job.status === "completed" && photos.length > 0 ? (
+                existingRequest ? (
+                  /* ── Request already submitted ── */
+                  <div className="flex flex-col items-end gap-1.5">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      Onboarding request submitted
+                    </span>
+                    {existingRequest.status === "pending" ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowEditModal(true)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 transition"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z" />
+                        </svg>
+                        Edit request
+                      </button>
+                    ) : (
+                      <span className="rounded-full bg-indigo-100 px-3 py-0.5 text-xs font-semibold text-indigo-800 capitalize">
+                        {existingRequest.status.replace("_", " ")}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  /* ── No request yet ── */
+                  <button
+                    type="button"
+                    onClick={openDirectOnboarding}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Create onboarding request
+                  </button>
+                )
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>
+
+      {onboardingSuccessBanner ? (
+        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-green-200 bg-green-50 px-5 py-4">
+          <svg className="h-5 w-5 text-green-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-green-800">Onboarding request submitted!</p>
+            <p className="text-xs text-green-700">An admin will review your photos and metadata.</p>
+          </div>
+          <button type="button" onClick={() => setOnboardingSuccessBanner(false)} className="text-green-600 hover:text-green-800 transition">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      ) : null}
+
+      {onboardingError ? (
+        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">
+          {onboardingError}
+        </div>
+      ) : null}
 
       {message ? (
         <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-700">
@@ -183,6 +322,25 @@ export default function HistoryFolder() {
           setReviewImages([]);
         }}
         onSave={savePhotoMetadata}
+      />
+
+      <OnboardingSubmitModal
+        isOpen={showOnboardingModal}
+        photoCount={photos.length}
+        onSubmit={handleOnboardingSubmit}
+        onClose={() => setShowOnboardingModal(false)}
+      />
+
+      {/* Edit modal — pre-fills existing title/notes */}
+      <OnboardingSubmitModal
+        isOpen={showEditModal}
+        photoCount={photos.length}
+        initialTitle={existingRequest?.onboardingRequestTitle ?? ""}
+        initialNotes={existingRequest?.onboardingRequestNotes ?? ""}
+        submitLabel="Save changes"
+        onSubmit={handleOnboardingEdit}
+        onClose={() => setShowEditModal(false)}
+        onDelete={handleOnboardingDelete}
       />
     </div>
   );

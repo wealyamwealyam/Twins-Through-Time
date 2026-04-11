@@ -35,7 +35,13 @@ const SECRET    = process.env.WORKER_SECRET ?? '';
 
 // Unique suffix so repeated runs don't clash
 const RUN_ID    = Date.now().toString(36);
-const TEST_USER = { username: `integtest_${RUN_ID}`, password: 'TestPass1!' };
+const TEST_USER = {
+  username:  `integtest_${RUN_ID}`,
+  email:     `integtest_${RUN_ID}@test-ttt.local`,
+  password:  'TestPass1!',
+  firstName: 'Integration',
+  lastName:  'Test',
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -134,8 +140,10 @@ async function testAuth() {
   res = await req('POST', '/api/auth/register', { body: TEST_USER });
   assertStatus('POST /api/auth/register (duplicate)', res, 409);
 
-  // Login
-  res = await req('POST', '/api/auth/login', { body: TEST_USER });
+  // Login (uses email + password)
+  res = await req('POST', '/api/auth/login', {
+    body: { email: TEST_USER.email, password: TEST_USER.password },
+  });
   if (!assertStatus('POST /api/auth/login', res, 200)) return;
   assertField('login body', res.data, d => d?.token, 'token');
   accessToken  = res.data.token;
@@ -153,13 +161,13 @@ async function testAuth() {
   }
 
   // Authenticated profile fetch
-  res = await req('GET', '/api/auth/me', { token: accessToken });
-  assertStatus('GET /api/auth/me', res, 200);
-  assertField('/api/auth/me body', res.data, d => d?.username === TEST_USER.username, `username=${TEST_USER.username}`);
+  res = await req('GET', '/api/account/profile', { token: accessToken });
+  assertStatus('GET /api/account/profile', res, 200);
+  assertField('/api/account/profile body', res.data, d => d?.username === TEST_USER.username, `username=${TEST_USER.username}`);
 
   // Bad token rejected
-  res = await req('GET', '/api/auth/me', { token: 'bad.token.value' });
-  assertStatus('GET /api/auth/me (bad token)', res, 401);
+  res = await req('GET', '/api/account/profile', { token: 'bad.token.value' });
+  assertStatus('GET /api/account/profile (bad token)', res, 401);
 }
 
 // ---------------------------------------------------------------------------
