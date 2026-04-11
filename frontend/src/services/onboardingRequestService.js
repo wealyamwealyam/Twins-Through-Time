@@ -4,118 +4,56 @@
  * Frontend service for the Onboarding Requests API (§6 in docs/apis.md).
  */
 
-import { apiFetch } from "./api.js";
+import { apiRequest } from "../utils/apiClient.js";
 
 /**
- * Create a new onboarding request.
- * @param {{ title: string, description?: string }} data
+ * Create a new onboarding request for a set of reviewed photos.
  */
-export function createOnboardingRequest(data) {
-  return apiFetch("/api/onboarding-requests", {
+export function createOnboardingRequest({ title, notes, photoIds }) {
+  return apiRequest("/onboarding-requests", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      onboardingRequestTitle: title,
+      onboardingRequestNotes: notes ?? null,
+      photoIds,
+    }),
   });
 }
 
 /**
  * List onboarding requests (filtered by status, page, limit).
- * @param {{ status?: string, page?: number, limit?: number }} params
  */
 export function getOnboardingRequests({ status, page = 1, limit = 20 } = {}) {
   const q = new URLSearchParams();
   if (status) q.set("status", status);
   q.set("page", page);
   q.set("limit", limit);
-  return apiFetch(`/api/onboarding-requests?${q}`);
+  return apiRequest(`/onboarding-requests?${q}`);
 }
 
 /**
  * Get a single onboarding request by ID.
- * @param {string} id
  */
 export function getOnboardingRequest(id) {
-  return apiFetch(`/api/onboarding-requests/${id}`);
+  return apiRequest(`/onboarding-requests/${id}`);
 }
 
 /**
- * Update an onboarding request (partial).
- * @param {string} id
- * @param {object} updates
+ * Update an onboarding request (title / notes only, pending status only).
  */
-export function updateOnboardingRequest(id, updates) {
-  return apiFetch(`/api/onboarding-requests/${id}`, {
+export function updateOnboardingRequest(id, { title, notes }) {
+  return apiRequest(`/onboarding-requests/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(updates),
+    body: JSON.stringify({
+      onboardingRequestTitle: title,
+      onboardingRequestNotes: notes ?? null,
+    }),
   });
 }
 
 /**
- * Delete an onboarding request.
- * @param {string} id
+ * Delete an onboarding request (submitter only, pending status only).
  */
 export function deleteOnboardingRequest(id) {
-  return apiFetch(`/api/onboarding-requests/${id}`, { method: "DELETE" });
-}
-
-/**
- * Add photos to an onboarding request.
- * @param {string} id
- * @param {string[]} photoIds
- */
-export function addPhotosToRequest(id, photoIds) {
-  return apiFetch(`/api/onboarding-requests/${id}/photos`, {
-    method: "POST",
-    body: JSON.stringify({ photoIds }),
-  });
-}
-
-/**
- * Remove a photo from an onboarding request.
- * @param {string} id
- * @param {string} photoId
- */
-export function removePhotoFromRequest(id, photoId) {
-  return apiFetch(`/api/onboarding-requests/${id}/photos/${photoId}`, {
-    method: "DELETE",
-  });
-}
-
-/**
- * Submit an onboarding request for review.
- * @param {string} id
- */
-export function submitOnboardingRequest(id) {
-  return apiFetch(`/api/onboarding-requests/${id}/submit`, { method: "POST" });
-}
-
-/**
- * Approve an onboarding request (admin only).
- * @param {string} id
- */
-export function approveOnboardingRequest(id) {
-  return apiFetch(`/api/onboarding-requests/${id}/approve`, { method: "POST" });
-}
-
-/**
- * Reject an onboarding request (admin only).
- * @param {string} id
- * @param {string} [reason]
- */
-export function rejectOnboardingRequest(id, reason) {
-  return apiFetch(`/api/onboarding-requests/${id}/reject`, {
-    method: "POST",
-    body: JSON.stringify({ reason }),
-  });
-}
-
-/**
- * Assign a reviewer to an onboarding request (admin only).
- * @param {string} id
- * @param {string} reviewerId
- */
-export function assignReviewer(id, reviewerId) {
-  return apiFetch(`/api/onboarding-requests/${id}/assign`, {
-    method: "PATCH",
-    body: JSON.stringify({ reviewerId }),
-  });
+  return apiRequest(`/onboarding-requests/${id}`, { method: "DELETE" });
 }

@@ -62,7 +62,7 @@ function buildInitialAnnotation(image, index) {
   };
 }
 
-export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSave }) {
+export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSave, onOnboardingSubmit }) {
   const initialData = useMemo(
     () => images.map((img, idx) => buildInitialAnnotation(img, idx)),
     [images]
@@ -384,6 +384,15 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
               >
                 {isSaving ? "Saving..." : "Save metadata"}
               </button>
+              {currentIndex === annotations.length - 1 && onOnboardingSubmit ? (
+                <button
+                  type="button"
+                  onClick={onOnboardingSubmit}
+                  className="rounded-lg bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-sm font-semibold text-white transition"
+                >
+                  Submit for onboarding →
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -418,7 +427,8 @@ MetadataReviewPopup.propTypes = {
       photoNotes: PropTypes.string,
     })
   ),
-  isOpen: PropTypes.bool.isRequired,
-  onClose: PropTypes.func.isRequired,
-  onSave: PropTypes.func,
+  isOpen:              PropTypes.bool.isRequired,
+  onClose:             PropTypes.func.isRequired,
+  onSave:              PropTypes.func,
+  onOnboardingSubmit:  PropTypes.func,
 };
