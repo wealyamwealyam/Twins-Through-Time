@@ -126,7 +126,7 @@ jsonKey = {
     "Military Unit": "The military unit the soldier served in. The full unit name.",
     "Regiment Number": "The regiment number part of the military unit (integer).",
     "Regiment State": "The regiment state part of the military unit using two-letter USPS abbreviation.",
-    "Branch": "The branch of the military unit.",
+    "Branch": "The branch of the military unit. (Army, Navy, Infantry, etc.)",
     "Company": "The company (regiment subunit) of the military unit.",
     "Age": "The age of the soldier at the time described, if known.",
     "Year Born": "The year the soldier was born, if known.",
@@ -296,20 +296,69 @@ def _infer_regiment_state_from_unit(military_unit: str | None) -> str:
     return ""
 
 
+def _clean_branch_text(branch_text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", branch_text).strip(" .,:;_-")
+    cleaned = re.sub(r"^(?:branch|service)\s*[:=-]\s*", "", cleaned, flags=re.IGNORECASE)
+    if not cleaned:
+        return ""
+    # Keep user-friendly casing for all-uppercase/all-lowercase extractions.
+    if cleaned.isupper() or cleaned.islower():
+        return cleaned.title()
+    return cleaned
+
+
 def _infer_branch_from_unit(military_unit: str | None) -> str:
     if not military_unit:
         return ""
-    lowered = military_unit.lower()
-    if "infantry" in lowered:
-        return "Infantry"
-    if "cavalry" in lowered:
-        return "Cavalry"
-    if "artillery" in lowered:
-        return "Artillery"
-    if "navy" in lowered:
-        return "Navy"
-    if "marines" in lowered or "marine" in lowered:
-        return "Marines"
+
+    unit = re.sub(r"\s+", " ", military_unit).strip()
+
+    # Common archive pattern:
+    # "United States. Army. Illinois Cavalry Regiment, 4th ..."
+    segments = [seg.strip(" .,:;_-") for seg in re.split(r"[.;]", unit) if seg.strip()]
+    if len(segments) >= 2:
+        for i in range(len(segments) - 1):
+            left = segments[i]
+            right = segments[i + 1]
+            if re.search(r"\b(united|confederate|states?|republic|kingdom|empire|nation)\b", left, re.IGNORECASE):
+                candidate = _clean_branch_text(right)
+                if candidate:
+                    # Avoid returning obvious unit-level strings as the branch.
+                    if not re.search(
+                        r"\b(regiment|company|battalion|brigade|division|corps|squadron|detachment|unit)\b",
+                        candidate,
+                        re.IGNORECASE,
+                    ):
+                        return candidate
+
+    # Generic pattern where a service is named directly after country/entity marker.
+    match = re.search(
+        r"(?:United\s+States|U\.?\s*S\.?|Confederate\s+States(?:\s+of\s+America)?)"
+        r"[\s\.,-]+([A-Za-z][A-Za-z &\-/]{1,40})",
+        unit,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        candidate = _clean_branch_text(match.group(1))
+        if candidate:
+            candidate = re.split(r"[,()]", candidate)[0].strip()
+            if not re.search(
+                r"\b(regiment|company|battalion|brigade|division|corps|squadron|detachment|unit)\b",
+                candidate,
+                re.IGNORECASE,
+            ):
+                return candidate
+
+    # If only a unit-type phrase is present, use the most branch-like tail token.
+    match = re.search(r"\b([A-Za-z][A-Za-z &\-/]{1,60})\s+Regiment\b", unit, flags=re.IGNORECASE)
+    if match:
+        phrase = re.sub(r"\s+", " ", match.group(1)).strip()
+        tokens = phrase.split()
+        if tokens:
+            candidate = _clean_branch_text(tokens[-1])
+            if candidate:
+                return candidate
+
     return ""
 
 
@@ -463,7 +512,7 @@ def normalize_metadata_schema(candidate: Any) -> dict[str, Any]:
         regiment_state = _infer_regiment_state_from_unit(military_unit)
     result["Regiment State"] = regiment_state
 
-    branch = _to_string(candidate.get("Branch"))
+    branch = _clean_branch_text(_to_string(candidate.get("Branch")))
     if not branch:
         branch = _infer_branch_from_unit(military_unit)
     result["Branch"] = branch
