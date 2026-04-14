@@ -1,0 +1,20 @@
+{
+  "First Name": "James",
+  "Middle Name or Initial": "null",
+  "Last Name": "Scott",
+  "Military Unit": "United States. Army. Illinois Cavalry Regiment, 4th (1861-1865). Company L",
+  "Regiment Number": 4,
+  "Regiment State": "IL",
+  "Branch": "null",
+  "Company": "Company L",
+  "Age": null,
+  "Year Born": null,
+  "Transcript": "Front: James Scott Private Co",
+  "Confidence": 0.7157,
+  "Source": "https://collections.carli.illinois.edu/digital/collection/alp_bib/id/721",
+  "Other": {
+    "Publisher": "Abraham Lincoln Presidential Library & Museum",
+    "Record ID": "721",
+    "Source URL": "https://collections.carli.illinois.edu/digital/collection/alp_bib/id/721"
+  }
+}
