@@ -1,0 +1,54 @@
+users
+    id
+    email
+    phone_number
+    username
+    password_hash
+    role
+    created_at
+
+photos
+    id
+    source_url
+    image_storage_url
+    title
+    description
+    hash
+    created_at
+
+submissions
+    id
+    photo_id
+    submitted_by_user_id
+    metadata_json
+    notes
+    status
+    created_at
+    updated_at
+
+submission_reviews
+    id
+    submission_id
+    reviewed_by_user_id
+    decision
+    admin_metadata_json
+    review_notes
+    reviewed_at
+
+organization_records
+    id
+    photo_id
+    approved_submission_id
+    approved_by_user_id
+    final_metadata_json
+    export_status
+    created_at
+
+organization_exports
+    id
+    organization_record_id
+    exported_by_user_id
+    payload_json
+    status
+    error_message
+    exported_at

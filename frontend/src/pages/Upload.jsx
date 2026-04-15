@@ -244,14 +244,17 @@ export default function Upload() {
       );
 
       const ids = photos.map((p) => p.id);
-      setReviewPhotoIds(ids);
       setReviewImages(
         photos.map((photo) => ({
           id: photo.id,
           src: photo.imageUrl,
           fileName: photo.imageUrl?.split("/").pop() || photo.id,
-          name: photo.name || "",
-          photoNotes: photo.photoNotes || "",
+          scrapedMetadata:
+            photo.scrapedMetadata ||
+            photo.metadata ||
+            photo.metadataJson ||
+            photo.finalMetadata ||
+            {},
         }))
       );
       setOpenReview(true);
@@ -261,20 +264,18 @@ export default function Upload() {
   }
 
   async function savePhotoMetadata(annotation) {
+    const metadata = annotation.metadata || {};
+  
     await apiRequest(`/photos/${annotation.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name: annotation.metadata.name || null,
-        age: annotation.metadata.ageRange === "Unknown" ? null : annotation.metadata.ageRange,
-        regiment: annotation.metadata.affiliation === "Unknown" ? null : annotation.metadata.affiliation,
-        photoNotes: annotation.metadata.notes || null,
-        tags: [
-          annotation.metadata.race,
-          annotation.metadata.sex,
-          ...Object.entries(annotation.metadata.accessories)
-            .filter(([, enabled]) => enabled)
-            .map(([key]) => key),
-        ].filter((tag) => tag && tag !== "Unknown"),
+        metadataJson: metadata,
+  
+        // optional compatibility fields if your backend/UI still uses them elsewhere
+        name: [metadata["First Name"], metadata["Middle Name or Initial"], metadata["Last Name"]]
+          .filter(Boolean)
+          .join(" ") || null,
+        photoNotes: metadata["Transcript"] || null,
       }),
     });
   }

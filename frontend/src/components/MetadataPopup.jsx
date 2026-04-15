@@ -1,68 +1,89 @@
 import React, { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 
-const AGE_OPTIONS = [
-  "Unknown",
-  "Infant",
-  "Child",
-  "Teen",
-  "20s",
-  "30s",
-  "40s",
-  "50s",
-  "60s",
-  "70+",
+const FIXED_FIELDS = [
+  { key: "First Name", type: "text" },
+  { key: "Middle Name or Initial", type: "text" },
+  { key: "Last Name", type: "text" },
+  { key: "Military Unit", type: "text" },
+  { key: "Regiment Number", type: "text" },
+  { key: "Regiment State", type: "text" },
+  { key: "Branch", type: "text" },
+  { key: "Company", type: "text" },
+  { key: "Age", type: "number" },
+  { key: "Year Born", type: "number" },
+  { key: "Transcript", type: "textarea" },
+  { key: "Confidence", type: "number", step: "0.01" },
+  { key: "Source", type: "text" },
 ];
 
-const AFFILIATION_OPTIONS = [
-  "Unknown",
-  "Union",
-  "Confederate",
-  "Civilian",
-  "Other",
-];
-
-const RACE_OPTIONS = [
-  "Unknown",
-  "White",
-  "Black",
-  "Asian",
-  "Native American",
-  "Mixed",
-  "Other",
-];
-
-const SEX_OPTIONS = [
-  "Unknown",
-  "Male",
-  "Female",
-  "Other",
-];
-
-const DEFAULT_FLAGS = {
-  hat: false,
-  glasses: false,
-  cane: false,
+const EMPTY_METADATA = {
+  "First Name": "",
+  "Middle Name or Initial": "",
+  "Last Name": "",
+  "Military Unit": "",
+  "Regiment Number": "",
+  "Regiment State": "",
+  Branch: "",
+  Company: "",
+  Age: "",
+  "Year Born": "",
+  Transcript: "",
+  Confidence: "",
+  Source: "",
+  Other: {},
 };
 
+function safeParseJson(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return null;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMetadata(rawMetadata = {}) {
+  const parsed = safeParseJson(rawMetadata) || {};
+  const normalized = {
+    ...EMPTY_METADATA,
+    ...parsed,
+    Other:
+      parsed?.Other && typeof parsed.Other === "object" && !Array.isArray(parsed.Other)
+        ? parsed.Other
+        : {},
+  };
+
+  return normalized;
+}
+
 function buildInitialAnnotation(image, index) {
+  const scrapedMetadata =
+    image.scrapedMetadata ||
+    image.metadata ||
+    image.metadataJson ||
+    image.finalMetadata ||
+    {};
+
   return {
     id: image.id ?? `record-${index + 1}`,
     imageSrc: image.src,
-    fileName: image.fileName ?? image.src?.split("/").pop() ?? `image-${index + 1}`,
-    metadata: {
-      name: image.name ?? "",
-      ageRange: "Unknown",
-      affiliation: "Unknown",
-      race: "Unknown",
-      sex: "Unknown",
-      accessories: { ...DEFAULT_FLAGS },
-      notes: image.photoNotes ?? "",
-    },
+    fileName:
+      image.fileName ?? image.src?.split("/").pop() ?? `image-${index + 1}`,
+    metadata: normalizeMetadata(scrapedMetadata),
   };
 }
 
-export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSave, onOnboardingSubmit }) {
+export default function MetadataReviewPopup({
+  images = [],
+  isOpen,
+  onClose,
+  onSave,
+  onOnboardingSubmit,
+}) {
   const initialData = useMemo(
     () => images.map((img, idx) => buildInitialAnnotation(img, idx)),
     [images]
@@ -101,6 +122,7 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
   }
 
   const current = annotations[currentIndex];
+
   if (!current) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -121,6 +143,7 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
   }
 
   const jsonPreview = JSON.stringify(annotations, null, 2);
+  const progress = `${currentIndex + 1} / ${annotations.length}`;
 
   const updateField = (field, value) => {
     setAnnotations((prev) =>
@@ -138,7 +161,7 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
     );
   };
 
-  const updateAccessory = (field, value) => {
+  const updateOtherField = (otherKey, value) => {
     setAnnotations((prev) =>
       prev.map((item, idx) =>
         idx === currentIndex
@@ -146,14 +169,83 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
               ...item,
               metadata: {
                 ...item.metadata,
-                accessories: {
-                  ...item.metadata.accessories,
-                  [field]: value,
+                Other: {
+                  ...(item.metadata.Other || {}),
+                  [otherKey]: value,
                 },
               },
             }
           : item
       )
+    );
+  };
+
+  const renameOtherField = (oldKey, newKey) => {
+    if (!newKey || oldKey === newKey) return;
+
+    setAnnotations((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== currentIndex) return item;
+
+        const currentOther = { ...(item.metadata.Other || {}) };
+        const existingValue = currentOther[oldKey];
+        delete currentOther[oldKey];
+        currentOther[newKey] = existingValue;
+
+        return {
+          ...item,
+          metadata: {
+            ...item.metadata,
+            Other: currentOther,
+          },
+        };
+      })
+    );
+  };
+
+  const removeOtherField = (otherKey) => {
+    setAnnotations((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== currentIndex) return item;
+
+        const currentOther = { ...(item.metadata.Other || {}) };
+        delete currentOther[otherKey];
+
+        return {
+          ...item,
+          metadata: {
+            ...item.metadata,
+            Other: currentOther,
+          },
+        };
+      })
+    );
+  };
+
+  const addOtherField = () => {
+    setAnnotations((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== currentIndex) return item;
+
+        const currentOther = { ...(item.metadata.Other || {}) };
+        let counter = 1;
+        let nextKey = `other${counter}`;
+
+        while (Object.prototype.hasOwnProperty.call(currentOther, nextKey)) {
+          counter += 1;
+          nextKey = `other${counter}`;
+        }
+
+        currentOther[nextKey] = "";
+
+        return {
+          ...item,
+          metadata: {
+            ...item.metadata,
+            Other: currentOther,
+          },
+        };
+      })
     );
   };
 
@@ -180,12 +272,11 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
     }
   };
 
-  const progress = `${currentIndex + 1} / ${annotations.length}`;
+  const otherEntries = Object.entries(current.metadata.Other || {});
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="flex h-[90vh] w-full max-w-7xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-        {/* IMAGE */}
         <div className="flex w-[32%] items-center justify-center bg-gray-100 p-6">
           <img
             src={current.imageSrc}
@@ -194,7 +285,6 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
           />
         </div>
 
-        {/* FORM */}
         <div className="flex w-[38%] flex-col border-l border-r">
           <div className="flex items-center justify-between border-b px-6 py-4">
             <div>
@@ -213,144 +303,80 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
 
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <div className="grid gap-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Name
-                </label>
-                <input
-                  type="text"
-                  value={current.metadata.name}
-                  onChange={(e) => updateField("name", e.target.value)}
-                  placeholder="Enter identified name if known"
-                  className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Age range
-                </label>
-                <select
-                  value={current.metadata.ageRange}
-                  onChange={(e) => updateField("ageRange", e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
-                >
-                  {AGE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Affiliation
-                </label>
-                <select
-                  value={current.metadata.affiliation}
-                  onChange={(e) => updateField("affiliation", e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
-                >
-                  {AFFILIATION_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Race
-                </label>
-                <select
-                  value={current.metadata.race}
-                  onChange={(e) => updateField("race", e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
-                >
-                  {RACE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Sex
-                </label>
-                <select
-                  value={current.metadata.sex}
-                  onChange={(e) => updateField("sex", e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
-                >
-                  {SEX_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <p className="mb-2 text-sm font-medium text-gray-700">
-                  Visible accessories / features
-                </p>
-                <div className="grid grid-cols-3 gap-3">
-                  <label className="flex items-center gap-2 rounded-lg border p-3">
-                    <input
-                      type="checkbox"
-                      checked={current.metadata.accessories.hat}
-                      onChange={(e) => updateAccessory("hat", e.target.checked)}
-                    />
-                    <span className="text-sm">Hat</span>
+              {FIXED_FIELDS.map((field) => (
+                <div key={field.key}>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    {field.key}
                   </label>
 
-                  <label className="flex items-center gap-2 rounded-lg border p-3">
-                    <input
-                      type="checkbox"
-                      checked={current.metadata.accessories.glasses}
-                      onChange={(e) => updateAccessory("glasses", e.target.checked)}
+                  {field.type === "textarea" ? (
+                    <textarea
+                      value={current.metadata[field.key] ?? ""}
+                      onChange={(e) => updateField(field.key, e.target.value)}
+                      rows={4}
+                      className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
                     />
-                    <span className="text-sm">Glasses</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 rounded-lg border p-3">
+                  ) : (
                     <input
-                      type="checkbox"
-                      checked={current.metadata.accessories.cane}
-                      onChange={(e) => updateAccessory("cane", e.target.checked)}
+                      type={field.type}
+                      step={field.step}
+                      value={current.metadata[field.key] ?? ""}
+                      onChange={(e) => updateField(field.key, e.target.value)}
+                      className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
                     />
-                    <span className="text-sm">Cane</span>
-                  </label>
+                  )}
                 </div>
-              </div>
+              ))}
 
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Notes
-                </label>
-                <textarea
-                  value={current.metadata.notes}
-                  onChange={(e) => updateField("notes", e.target.value)}
-                  rows={4}
-                  placeholder="Any extra notes or uncertainty..."
-                  className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
-                />
-              </div>
+              <div className="rounded-xl border p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Other</h3>
+                    <p className="text-xs text-gray-500">
+                      Dynamic metadata fields from the scrape
+                    </p>
+                  </div>
 
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  AI Summary
-                </label>
-                <textarea
-                  value={"AI-generated summary connection TODO"}
-                  readOnly
-                  className="w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm text-gray-700 resize-none focus:outline-none"
-                  rows={4}
-                />
+                  <button
+                    type="button"
+                    onClick={addOtherField}
+                    className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50"
+                  >
+                    + Add field
+                  </button>
+                </div>
+
+                {otherEntries.length === 0 ? (
+                  <p className="text-sm text-gray-500">No extra fields found.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {otherEntries.map(([otherKey, otherValue]) => (
+                      <div key={otherKey} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                        <input
+                          type="text"
+                          value={otherKey}
+                          onChange={(e) => renameOtherField(otherKey, e.target.value)}
+                          placeholder="Field name"
+                          className="rounded-lg border px-3 py-2 outline-none focus:ring"
+                        />
+                        <input
+                          type="text"
+                          value={otherValue ?? ""}
+                          onChange={(e) => updateOtherField(otherKey, e.target.value)}
+                          placeholder="Field value"
+                          className="rounded-lg border px-3 py-2 outline-none focus:ring"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeOtherField(otherKey)}
+                          className="rounded-lg border px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -372,10 +398,12 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
                 Next
               </button>
             </div>
+
             <div className="flex items-center gap-3">
               {saveMessage ? (
                 <span className="text-xs text-gray-500">{saveMessage}</span>
               ) : null}
+
               <button
                 type="button"
                 onClick={saveCurrent}
@@ -384,11 +412,12 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
               >
                 {isSaving ? "Saving..." : "Save metadata"}
               </button>
+
               {currentIndex === annotations.length - 1 && onOnboardingSubmit ? (
                 <button
                   type="button"
                   onClick={onOnboardingSubmit}
-                  className="rounded-lg bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-sm font-semibold text-white transition"
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
                 >
                   Submit for onboarding →
                 </button>
@@ -397,12 +426,11 @@ export default function MetadataReviewPopup({ images = [], isOpen, onClose, onSa
           </div>
         </div>
 
-        {/* JSON SIDEBAR */}
         <aside className="flex w-[30%] flex-col bg-gray-950 text-gray-100">
           <div className="border-b border-white/10 px-4 py-3">
             <h3 className="text-sm font-semibold">JSON Preview</h3>
             <p className="mt-1 text-xs text-gray-400">
-                debug and demo purposes - LIVE
+              debug and demo purposes - LIVE
             </p>
           </div>
 
@@ -423,12 +451,14 @@ MetadataReviewPopup.propTypes = {
       id: PropTypes.string,
       src: PropTypes.string,
       fileName: PropTypes.string,
-      name: PropTypes.string,
-      photoNotes: PropTypes.string,
+      scrapedMetadata: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
+      metadata: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
+      metadataJson: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
+      finalMetadata: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
     })
   ),
-  isOpen:              PropTypes.bool.isRequired,
-  onClose:             PropTypes.func.isRequired,
-  onSave:              PropTypes.func,
-  onOnboardingSubmit:  PropTypes.func,
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  onSave: PropTypes.func,
+  onOnboardingSubmit: PropTypes.func,
 };
