@@ -1,71 +1,113 @@
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 
 import AdminSectionNav from "../components/AdminSectionNav";
 import { apiRequest } from "../utils/apiClient";
+import { getOnboardingRequests } from "../services/onboardingRequestService";
 
-const reviewQueue = [
-  {
-    id: "REQ-104",
-    title: "Library of Congress batch 18",
-    submittedBy: "mrivera",
-    status: "Under review",
-    photos: 27,
-    reviewer: "Dana Holt",
-  },
-  {
-    id: "REQ-106",
-    title: "Virginia archive portraits",
-    submittedBy: "bporter",
-    status: "Pending",
-    photos: 12,
-    reviewer: "Unassigned",
-  },
-  {
-    id: "REQ-109",
-    title: "Getty officer collection",
-    submittedBy: "rlee",
-    status: "Pending",
-    photos: 31,
-    reviewer: "Unassigned",
-  },
-];
+function formatDateTime(iso) {
+  if (!iso) return "Unknown";
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
-const recentAdminActions = [
-  "Invite link generated for a new admin reviewer",
-  "Two onboarding requests approved and pushed to the bridge service",
-  "One contributor account deactivated after duplicate signup",
-];
+function StatusPill({ status }) {
+  const tone =
+    status === "approved"
+      ? "bg-emerald-100 text-emerald-800"
+      : status === "under_review"
+      ? "bg-blue-100 text-blue-800"
+      : status === "rejected"
+      ? "bg-red-100 text-red-800"
+      : "bg-amber-100 text-amber-800";
+
+  return (
+    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${tone}`}>
+      {status.replaceAll("_", " ")}
+    </span>
+  );
+}
+
+StatusPill.propTypes = {
+  status: PropTypes.string.isRequired,
+};
+
+function QuickAction({ to, title, desc }) {
+  return (
+    <Link to={to} className="rounded-2xl border border-gray-200 bg-gray-50 p-4 transition hover:bg-gray-100">
+      <div className="text-sm font-semibold text-gray-900">{title}</div>
+      <div className="mt-1 text-sm text-gray-600">{desc}</div>
+    </Link>
+  );
+}
+
+QuickAction.propTypes = {
+  to: PropTypes.string.isRequired,
+  title: PropTypes.string.isRequired,
+  desc: PropTypes.string.isRequired,
+};
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
+  const [requests, setRequests] = useState([]);
+  const [usersById, setUsersById] = useState({});
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadStats() {
+    async function loadDashboard() {
       setMessage("");
 
       try {
-        const result = await apiRequest("/admin/dashboard/stats");
-        if (!cancelled) {
-          setStats(result);
+        const [statsResult, requestsResult, usersResult] = await Promise.all([
+          apiRequest("/admin/dashboard/stats"),
+          getOnboardingRequests({ limit: 100 }),
+          apiRequest("/admin/users?limit=100"),
+        ]);
+
+        if (cancelled) return;
+
+        const userMap = {};
+        for (const user of usersResult?.data || []) {
+          userMap[user.id] = user;
         }
+
+        setStats(statsResult);
+        setRequests(requestsResult?.data || []);
+        setUsersById(userMap);
       } catch (error) {
         if (!cancelled) {
-          setMessage(error?.message || "Unable to load admin dashboard stats.");
+          setMessage(error?.message || "Unable to load admin dashboard.");
         }
       }
     }
 
-    loadStats();
+    loadDashboard();
 
     return () => {
       cancelled = true;
     };
   }, []);
+
+  function getUserLabel(id) {
+    if (!id) return "Unassigned";
+    const user = usersById[id];
+    if (!user) return id;
+    return user.username || user.email || id;
+  }
+
+  const latestRequests = useMemo(() => {
+    return [...requests]
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, 5);
+  }, [requests]);
 
   const statCards = [
     {
@@ -79,14 +121,14 @@ export default function AdminDashboard() {
       note: "Total scrape jobs in the database",
     },
     {
-      label: "Pending requests",
+      label: "Pending review",
       value: stats?.pendingRequests ?? "-",
-      note: "Onboarding requests under review",
+      note: "Requests currently under review",
     },
     {
-      label: "Onboarded photos",
-      value: stats?.onboardedPhotos ?? "-",
-      note: "Photos in onboarded requests",
+      label: "Approved requests",
+      value: stats?.approvedRequests ?? "-",
+      note: "Requests approved in Supabase",
     },
   ];
 
@@ -102,26 +144,20 @@ export default function AdminDashboard() {
               Admin dashboard
             </h1>
             <p className="mt-3 text-base text-gray-600">
-              Monitor users, review onboarding submissions, and manage the approval
-              flow planned in the project API.
+              Monitor the system, review onboarding requests, and manage users.
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <QuickAction
               to="/admin/users"
               title="Manage users"
-              desc="Search roles, inspect activity, and deactivate accounts."
+              desc="Search accounts, update roles, and moderate access."
             />
             <QuickAction
               to="/admin/review"
               title="Open review queue"
-              desc="Assign reviewers and move requests through approval."
-            />
-            <QuickAction
-              to="/admin/onboarding"
-              title="Run onboarding"
-              desc="Process approved batches and push them into the final onboarding pipeline."
+              desc="Inspect submitted images and approve or reject requests."
             />
           </div>
         </div>
@@ -147,106 +183,59 @@ export default function AdminDashboard() {
         ))}
       </section>
 
-      <section className="mt-6 grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Review queue snapshot</h2>
-              <p className="mt-1 text-sm text-gray-500">
-                Mock data for the future onboarding request workflow.
-              </p>
-            </div>
-            <Link to="/admin/review" className="text-sm font-semibold text-gray-900 hover:underline">
-              View full queue
-            </Link>
+      <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Latest onboarding requests</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Most recent requests from the real backend.
+            </p>
           </div>
+          <Link to="/admin/review" className="text-sm font-semibold text-gray-900 hover:underline">
+            View full queue
+          </Link>
+        </div>
 
-          <div className="mt-5 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-gray-200 text-gray-500">
+        <div className="mt-5 overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-gray-200 text-gray-500">
+              <tr>
+                <th className="pb-3 font-semibold">Request</th>
+                <th className="pb-3 font-semibold">Submitted by</th>
+                <th className="pb-3 font-semibold">Photos</th>
+                <th className="pb-3 font-semibold">Reviewer</th>
+                <th className="pb-3 font-semibold">Status</th>
+                <th className="pb-3 font-semibold">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {latestRequests.length === 0 ? (
                 <tr>
-                  <th className="pb-3 font-semibold">Request</th>
-                  <th className="pb-3 font-semibold">Submitted by</th>
-                  <th className="pb-3 font-semibold">Photos</th>
-                  <th className="pb-3 font-semibold">Reviewer</th>
-                  <th className="pb-3 font-semibold">Status</th>
+                  <td colSpan={6} className="py-8 text-center text-sm text-gray-500">
+                    No onboarding requests yet.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {reviewQueue.map((item) => (
+              ) : (
+                latestRequests.map((item) => (
                   <tr key={item.id} className="border-b border-gray-100 last:border-b-0">
                     <td className="py-4">
-                      <div className="font-semibold text-gray-900">{item.title}</div>
+                      <div className="font-semibold text-gray-900">{item.onboardingRequestTitle}</div>
                       <div className="text-xs text-gray-500">{item.id}</div>
                     </td>
-                    <td className="py-4 text-gray-700">{item.submittedBy}</td>
-                    <td className="py-4 text-gray-700">{item.photos}</td>
-                    <td className="py-4 text-gray-700">{item.reviewer}</td>
+                    <td className="py-4 text-gray-700">{getUserLabel(item.submittedBy)}</td>
+                    <td className="py-4 text-gray-700">{item.photoCount || item.photoIds?.length || 0}</td>
+                    <td className="py-4 text-gray-700">{getUserLabel(item.reviewerId)}</td>
                     <td className="py-4">
                       <StatusPill status={item.status} />
                     </td>
+                    <td className="py-4 text-gray-700">{formatDateTime(item.createdAt)}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900">Recent admin actions</h2>
-            <ul className="mt-4 grid gap-3">
-              {recentAdminActions.map((item) => (
-                <li key={item} className="rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-700">
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-6">
-            <h2 className="text-lg font-semibold text-gray-900">Planned API mapping</h2>
-            <ul className="mt-4 grid gap-2 text-sm text-gray-600">
-              <li>`GET /admin/dashboard/stats` for top-level cards</li>
-              <li>`GET /admin/users` for directory and filters</li>
-              <li>`PATCH /admin/users/:id/deactivate` for account actions</li>
-              <li>`POST /admin/invite-link` for reviewer invites</li>
-            </ul>
-          </div>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
     </div>
   );
 }
-
-function QuickAction({ to, title, desc }) {
-  return (
-    <Link to={to} className="rounded-2xl border border-gray-200 bg-gray-50 p-4 transition hover:bg-gray-100">
-      <div className="text-sm font-semibold text-gray-900">{title}</div>
-      <div className="mt-1 text-sm text-gray-600">{desc}</div>
-    </Link>
-  );
-}
-
-QuickAction.propTypes = {
-  to: PropTypes.string.isRequired,
-  title: PropTypes.string.isRequired,
-  desc: PropTypes.string.isRequired,
-};
-
-function StatusPill({ status }) {
-  const tone =
-    status === "Pending"
-      ? "bg-amber-100 text-amber-800"
-      : "bg-blue-100 text-blue-800";
-
-  return (
-    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${tone}`}>
-      {status}
-    </span>
-  );
-}
-
-StatusPill.propTypes = {
-  status: PropTypes.string.isRequired,
-};

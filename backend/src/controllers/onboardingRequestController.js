@@ -414,25 +414,3 @@ export const assignReviewer = async (req, res) => {
 
   return res.status(200).json(await toDetail(await updateOnboardingRequest(onbReq.id, { reviewerId })));
 };
-
-export const onboardOnboardingReq = async (req, res) => {
-  const onbReq = await findOnboardingRequestById(req.params.id);
-  if (!onbReq) {
-    return res.status(404).json(errBody('NOT_FOUND', 'Onboarding request not found.'));
-  }
-
-  if (onbReq.status !== 'approved') {
-    return res.status(422).json(
-      errBody(
-        'UNPROCESSABLE',
-        `Only \`approved\` requests can be marked onboarded (current status: \`${onbReq.status}\`).`
-      )
-    );
-  }
-
-  const updated = await updateOnboardingRequest(onbReq.id, {
-    status: 'onboarded',
-  });
-
-  return res.status(200).json(await toDetail(updated));
-};

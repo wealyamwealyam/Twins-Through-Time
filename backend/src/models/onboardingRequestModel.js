@@ -116,7 +116,9 @@ export const findOnboardingRequests = async ({
   if (status      !== undefined) query = query.eq('status', status);
   if (reviewerId  !== undefined) query = query.eq('reviewer_id', reviewerId);
 
-  query = query.range((safePage - 1) * safeLimit, safePage * safeLimit - 1);
+  query = query
+    .order('created_at', { ascending: false })
+    .range((safePage - 1) * safeLimit, safePage * safeLimit - 1);
 
   const { data, error, count } = await query;
   if (error) throw error;

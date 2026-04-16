@@ -158,10 +158,6 @@ export default function Navbar() {
                 <Link to="/admin" className="hover:text-blue-300 transition">
                   Admin
                 </Link>
-
-                <Link to="/admin/onboarding" className="hover:text-blue-300 transition">
-                  Onboarding
-                </Link>
               </>
             ) : null}
           </div>

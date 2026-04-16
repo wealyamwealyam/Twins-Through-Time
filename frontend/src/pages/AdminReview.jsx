@@ -4,17 +4,32 @@ import AdminSectionNav from "../components/AdminSectionNav";
 import { apiRequest } from "../utils/apiClient";
 import {
   getOnboardingRequests,
+  getOnboardingRequest,
   assignOnboardingReviewer,
   approveOnboardingRequest,
   rejectOnboardingRequest,
 } from "../services/onboardingRequestService";
+import MetadataReviewPopup from "../components/MetadataPopup";
 
-function formatDate(iso) {
+/*helper for image editing*/
+function toReviewImage(photo) {
+  return {
+    id: photo.id,
+    src: photo.imageUrl,
+    fileName: photo.imageUrl?.split("/").pop() || photo.id,
+    name: photo.name || "",
+    photoNotes: photo.photoNotes || "",
+  };
+}
+
+function formatDateTime(iso) {
   if (!iso) return "Unknown";
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -24,7 +39,6 @@ function StatusBadge({ status }) {
     under_review: "bg-blue-100 text-blue-800",
     approved: "bg-emerald-100 text-emerald-800",
     rejected: "bg-red-100 text-red-800",
-    onboarded: "bg-violet-100 text-violet-800",
   };
 
   return (
@@ -34,15 +48,95 @@ function StatusBadge({ status }) {
   );
 }
 
+function ImageModal({ request, onClose, onEdit }) {
+  if (!request) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b px-6 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">
+              {request.onboardingRequestTitle}
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              {request.photos?.length || 0} submitted image{request.photos?.length === 1 ? "" : "s"}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200 transition"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="max-h-[75vh] overflow-y-auto p-6">
+          {request.photos?.length ? (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+              {request.photos.map((photo) => (
+                <article
+                  key={photo.id}
+                  className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="flex h-64 items-center justify-center overflow-hidden rounded-xl bg-gray-100">
+                    <img
+                      src={photo.imageUrl}
+                      alt={photo.name || photo.id}
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
+
+                  <div className="mt-4">
+                  <div className="text-sm font-semibold text-gray-900">
+                    {photo.name || "Unidentified photo"}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    {photo.status || "No status"}
+                  </div>
+                  {photo.photoNotes ? (
+                    <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                      {photo.photoNotes}
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => onEdit(photo)}
+                    className="mt-3 rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-800 transition"
+                  >
+                    Edit metadata
+                  </button>
+                </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center text-sm text-gray-600">
+              No submitted images found for this request.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminReview() {
   const [requests, setRequests] = useState([]);
   const [admins, setAdmins] = useState([]);
   const [usersById, setUsersById] = useState({});
   const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [actionId, setActionId] = useState("");
-  const [adminNotes, setAdminNotes] = useState({});
+  const [detailRequest, setDetailRequest] = useState(null);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [reviewImages, setReviewImages] = useState([]);
+  const [openReview, setOpenReview] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,13 +146,8 @@ export default function AdminReview() {
       setMessage("");
 
       try {
-        const requestParams = { limit: 100 };
-        if (statusFilter !== "all") {
-          requestParams.status = statusFilter;
-        }
-
         const [requestResult, adminUsersResult, allUsersResult] = await Promise.all([
-          getOnboardingRequests(requestParams),
+          getOnboardingRequests({ limit: 100 }),
           apiRequest("/admin/users?accountType=admin&limit=100"),
           apiRequest("/admin/users?limit=100"),
         ]);
@@ -95,9 +184,7 @@ export default function AdminReview() {
     return () => {
       cancelled = true;
     };
-  }, [statusFilter]);
-
-  const visibleRequests = useMemo(() => requests, [requests]);
+  }, []);
 
   function getUserLabel(id) {
     if (!id) return "Unassigned";
@@ -105,6 +192,25 @@ export default function AdminReview() {
     if (!user) return id;
     return user.username || user.email || id;
   }
+
+  const filteredRequests = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+
+    return [...requests]
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .filter((request) => {
+        const matchesStatus =
+          statusFilter === "all" || request.status === statusFilter;
+
+        const matchesSearch =
+          !needle ||
+          request.onboardingRequestTitle?.toLowerCase().includes(needle) ||
+          request.id?.toLowerCase().includes(needle) ||
+          getUserLabel(request.submittedBy).toLowerCase().includes(needle);
+
+        return matchesStatus && matchesSearch;
+      });
+  }, [requests, statusFilter, search, usersById]);
 
   function updateLocalRequest(id, updates) {
     setRequests((current) =>
@@ -139,16 +245,12 @@ export default function AdminReview() {
     setMessage("");
 
     try {
-      const updated = await approveOnboardingRequest(
-        requestId,
-        adminNotes[requestId] || ""
-      );
+      const updated = await approveOnboardingRequest(requestId);
 
       updateLocalRequest(requestId, {
         status: updated.status,
         reviewedBy: updated.reviewedBy,
         reviewedAt: updated.reviewedAt,
-        adminNote: updated.adminNote,
       });
 
       setMessage("Request approved.");
@@ -164,16 +266,12 @@ export default function AdminReview() {
     setMessage("");
 
     try {
-      const updated = await rejectOnboardingRequest(
-        requestId,
-        adminNotes[requestId] || ""
-      );
+      const updated = await rejectOnboardingRequest(requestId);
 
       updateLocalRequest(requestId, {
         status: updated.status,
         reviewedBy: updated.reviewedBy,
         reviewedAt: updated.reviewedAt,
-        adminNote: updated.adminNote,
       });
 
       setMessage("Request rejected.");
@@ -184,6 +282,61 @@ export default function AdminReview() {
     }
   }
 
+async function savePhotoMetadata(annotation) {
+  const updated = await apiRequest(`/photos/${annotation.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: annotation.metadata.name || null,
+      age: annotation.metadata.ageRange === "Unknown" ? null : annotation.metadata.ageRange,
+      regiment: annotation.metadata.affiliation === "Unknown" ? null : annotation.metadata.affiliation,
+      photoNotes: annotation.metadata.notes || null,
+      tags: [
+        annotation.metadata.race,
+        annotation.metadata.sex,
+        ...Object.entries(annotation.metadata.accessories)
+          .filter(([, enabled]) => enabled)
+          .map(([key]) => key),
+      ].filter((tag) => tag && tag !== "Unknown"),
+    }),
+  });
+
+  setDetailRequest((current) => {
+    if (!current) return current;
+
+    return {
+      ...current,
+      photos: current.photos.map((photo) =>
+        photo.id === updated.id ? updated : photo
+      ),
+    };
+  });
+}
+
+async function openRequestImages(requestId) {
+  setIsLoadingDetail(true);
+  setMessage("");
+
+  try {
+    const detail = await getOnboardingRequest(requestId);
+    setDetailRequest(detail);
+  } catch (error) {
+    setMessage(error?.message || "Unable to load submitted images.");
+  } finally {
+    setIsLoadingDetail(false);
+  }
+}
+
+
+
+
+  const counts = {
+    all: requests.length,
+    under_review: requests.filter((r) => r.status === "under_review").length,
+    approved: requests.filter((r) => r.status === "approved").length,
+    rejected: requests.filter((r) => r.status === "rejected").length,
+    pending: requests.filter((r) => r.status === "pending").length,
+  };
+
   return (
     <div className="mx-auto max-w-6xl">
       <section className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
@@ -193,25 +346,9 @@ export default function AdminReview() {
               Review queue
             </h1>
             <p className="mt-3 text-base text-gray-600">
-              Review real onboarding requests, assign admins, and approve or reject submissions.
+              Review submitted onboarding requests, inspect their images, and approve or reject them.
             </p>
           </div>
-
-          <label>
-            <div className="text-sm font-semibold text-gray-900">Status</div>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-900/10"
-            >
-              <option value="all">All statuses</option>
-              <option value="pending">Pending</option>
-              <option value="under_review">Under review</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-              <option value="onboarded">Onboarded</option>
-            </select>
-          </label>
         </div>
       </section>
 
@@ -225,96 +362,141 @@ export default function AdminReview() {
         </div>
       ) : null}
 
-      <section className="mt-6 grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          {isLoading ? (
-            <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center">
-              <div className="text-base font-semibold text-gray-900">
-                Loading review queue...
-              </div>
+      <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="grid gap-4 md:grid-cols-3">
+          <label className="md:col-span-2">
+            <div className="text-sm font-semibold text-gray-900">Search</div>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by title, request ID, or submitter"
+              className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-900/10"
+            />
+          </label>
+
+          <label>
+            <div className="text-sm font-semibold text-gray-900">Status</div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-900/10"
+            >
+              <option value="all">All statuses</option>
+              <option value="under_review">Under review</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="pending">Pending</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          {[
+            ["all", "All", counts.all],
+            ["under_review", "Under review", counts.under_review],
+            ["approved", "Approved", counts.approved],
+            ["rejected", "Rejected", counts.rejected],
+            ["pending", "Pending", counts.pending],
+          ].map(([value, label, count]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setStatusFilter(value)}
+              className={[
+                "rounded-full px-4 py-2 text-sm font-semibold transition",
+                statusFilter === value
+                  ? "bg-gray-900 text-white"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200",
+              ].join(" ")}
+            >
+              {label} ({count})
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        {isLoading ? (
+          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center">
+            <div className="text-base font-semibold text-gray-900">
+              Loading review queue...
             </div>
-          ) : visibleRequests.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center">
-              <div className="text-base font-semibold text-gray-900">
-                No requests found
-              </div>
-              <div className="mt-2 text-sm text-gray-500">
-                There are no onboarding requests for this filter right now.
-              </div>
+          </div>
+        ) : filteredRequests.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center">
+            <div className="text-base font-semibold text-gray-900">
+              No requests found
             </div>
-          ) : (
-            <div className="grid gap-4">
-              {visibleRequests.map((request) => {
-                const isWorking = actionId === request.id;
-                const canApprove = request.status === "under_review";
-                const canReject =
-                  request.status === "pending" || request.status === "under_review";
+            <div className="mt-2 text-sm text-gray-500">
+              There are no onboarding requests for this filter right now.
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {filteredRequests.map((request) => {
+              const isWorking = actionId === request.id;
+              const canApprove = request.status === "under_review";
+              const canReject =
+                request.status === "pending" || request.status === "under_review";
 
-                return (
-                  <article key={request.id} className="rounded-2xl border border-gray-200 p-5">
-                    <div className="flex flex-col gap-4">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-3">
-                            <h2 className="text-lg font-semibold text-gray-900">
-                              {request.onboardingRequestTitle}
-                            </h2>
-                            <StatusBadge status={request.status} />
-                          </div>
+              return (
+                <article key={request.id} className="rounded-2xl border border-gray-200 p-5">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <h2 className="text-lg font-semibold text-gray-900">
+                            {request.onboardingRequestTitle}
+                          </h2>
+                          <StatusBadge status={request.status} />
+                        </div>
 
-                          <div className="mt-2 text-sm text-gray-600">
-                            Request {request.id}
-                          </div>
+                        <div className="mt-2 text-sm text-gray-600">
+                          Request {request.id}
+                        </div>
 
-                          <div className="mt-1 text-sm text-gray-500">
-                            Submitted by {getUserLabel(request.submittedBy)} • {request.photoCount || request.photoIds?.length || 0} photos
-                          </div>
+                        <div className="mt-1 text-sm text-gray-500">
+                          Submitted by {getUserLabel(request.submittedBy)} • {request.photoCount || request.photoIds?.length || 0} photos
+                        </div>
 
-                          <div className="mt-1 text-sm text-gray-500">
-                            Reviewer: {getUserLabel(request.reviewerId)} • Updated {formatDate(request.updatedAt)}
-                          </div>
+                        <div className="mt-1 text-sm text-gray-500">
+                          Created {formatDateTime(request.createdAt)} • Reviewer: {getUserLabel(request.reviewerId)}
                         </div>
                       </div>
 
-                      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-                        <div>
-                          <label className="block text-sm font-semibold text-gray-900">
-                            Assign reviewer
-                          </label>
-                          <select
-                            value={request.reviewerId || ""}
-                            onChange={(e) => handleAssign(request.id, e.target.value)}
-                            disabled={isWorking}
-                            className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-900/10 disabled:opacity-60"
-                          >
-                            <option value="">Unassigned</option>
-                            {admins.map((admin) => (
-                              <option key={admin.id} value={admin.id}>
-                                {admin.username}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openRequestImages(request.id)}
+                          disabled={isLoadingDetail}
+                          className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+                        >
+                          View submitted images
+                        </button>
+                      </div>
+                    </div>
 
-                        <div>
-                          <label className="block text-sm font-semibold text-gray-900">
-                            Admin note
-                          </label>
-                          <textarea
-                            value={adminNotes[request.id] || ""}
-                            onChange={(e) =>
-                              setAdminNotes((current) => ({
-                                ...current,
-                                [request.id]: e.target.value,
-                              }))
-                            }
-                            placeholder="Optional approval/rejection note"
-                            className="mt-2 min-h-[88px] w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-900/10"
-                          />
-                        </div>
+                    <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-900">
+                          Assign reviewer
+                        </label>
+                        <select
+                          value={request.reviewerId || ""}
+                          onChange={(e) => handleAssign(request.id, e.target.value)}
+                          disabled={isWorking}
+                          className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-900/10 disabled:opacity-60"
+                        >
+                          <option value="">Unassigned</option>
+                          {admins.map((admin) => (
+                            <option key={admin.id} value={admin.id}>
+                              {admin.username}
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
-                      <div className="flex flex-wrap gap-3">
+                      <div className="flex flex-wrap items-end gap-3">
                         <button
                           type="button"
                           onClick={() => handleApprove(request.id)}
@@ -334,36 +516,32 @@ export default function AdminReview() {
                         </button>
                       </div>
                     </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-6">
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900">Workflow notes</h2>
-            <ul className="mt-4 grid gap-3 text-sm text-gray-600">
-              <li>Requests must reach under_review before they can be approved.</li>
-              <li>Assigning a reviewer is optional but useful for ownership.</li>
-              <li>Rejected requests can include an admin note for feedback.</li>
-              <li>Approved requests will later feed the onboarding operations page.</li>
-            </ul>
+                  </div>
+                </article>
+              );
+            })}
           </div>
-
-          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-6">
-            <h2 className="text-lg font-semibold text-gray-900">Connected backend</h2>
-            <ul className="mt-4 grid gap-2 text-sm text-gray-600">
-              <li>`GET /onboarding-requests`</li>
-              <li>`PATCH /onboarding-requests/:id/assign`</li>
-              <li>`POST /onboarding-requests/:id/approve`</li>
-              <li>`POST /onboarding-requests/:id/reject`</li>
-              <li>`GET /admin/users?accountType=admin`</li>
-            </ul>
-          </div>
-        </div>
+        )}
       </section>
+
+      <MetadataReviewPopup
+        images={reviewImages}
+        isOpen={openReview}
+        onClose={() => {
+        setOpenReview(false);
+        setReviewImages([]);
+      }}
+      onSave={savePhotoMetadata}
+      />
+      <ImageModal
+        request={detailRequest}
+        onClose={() => setDetailRequest(null)}
+        onEdit={(photo) => {
+          setDetailRequest(null);
+          setReviewImages([toReviewImage(photo)]);
+          setOpenReview(true);
+        }}
+      />
     </div>
   );
 }
