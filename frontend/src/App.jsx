@@ -13,7 +13,7 @@ import Signup from "./pages/Signup";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminUsers from "./pages/AdminUsers";
 import AdminReview from "./pages/AdminReview";
-import AdminOnboarding from "./pages/AdminOnboarding";
+{/*import AdminOnboarding from "./pages/AdminOnboarding";*/}
 
 import AuthError from "./pages/AuthError";
 import ServerError from "./pages/ServerError";
@@ -37,7 +37,7 @@ function App() {
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/review" element={<AdminReview />} />
-            <Route path="/admin/onboarding" element={<AdminOnboarding />} />
+            {/*<Route path="/admin/onboarding" element={<AdminOnboarding />} />*/}
 
             <Route path="/error/auth" element={<AuthError />} />
             <Route path="/error/server" element={<ServerError />} />
