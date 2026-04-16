@@ -21,6 +21,7 @@ import {
   listUsers,
   deactivateUser,
   reactivateUser,
+  deleteUser,
   getDashboardStats,
 } from '../controllers/adminController.js';
 
@@ -34,5 +35,6 @@ router.get(   '/users',                 listUsers);
 router.patch( '/users/:id/deactivate',  deactivateUser);
 router.patch( '/users/:id/reactivate',  reactivateUser);
 router.get(   '/dashboard/stats',       getDashboardStats);
+router.delete('/users/:id', deleteUser);
 
 export default router;

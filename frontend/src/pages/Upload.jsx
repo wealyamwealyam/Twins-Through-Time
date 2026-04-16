@@ -4,7 +4,7 @@ import PropTypes from "prop-types";
 import MetadataReviewPopup from "../components/MetadataPopup";
 import OnboardingSubmitModal from "../components/OnboardingSubmitModal";
 import { apiRequest, getBackendSession } from "../utils/apiClient";
-import { createOnboardingRequest, getOnboardingRequests } from "../services/onboardingRequestService";
+import { createOnboardingRequest, getOnboardingRequests, submitOnboardingRequest } from "../services/onboardingRequestService";
 
 function StatusBadge({ status }) {
   const styles = {
@@ -279,24 +279,33 @@ export default function Upload() {
     });
   }
 
-  async function handleOnboardingSubmit(title, notes) {
-    const created = await createOnboardingRequest({
-      title,
-      notes,
-      photoIds: reviewPhotoIds,
-    });
-    // Close the metadata review popup (if open) and show a success banner
-    setOpenReview(false);
-    setShowOnboardingModal(false);
-    setReviewImages([]);
-    setReviewPhotoIds([]);
-    setOnboardingSuccessBanner(true);
-    // Mark this job as having a submitted request
-    if (pendingJobIdRef.current && created) {
-      setRequestByJobId((prev) => ({ ...prev, [pendingJobIdRef.current]: created }));
-      pendingJobIdRef.current = null;
-    }
+async function handleOnboardingSubmit(title, notes) {
+  const created = await createOnboardingRequest({
+    title,
+    notes,
+    photoIds: reviewPhotoIds,
+  });
+
+  const submitted = await submitOnboardingRequest(created.id);
+
+  setOpenReview(false);
+  setShowOnboardingModal(false);
+  setReviewImages([]);
+  setReviewPhotoIds([]);
+  setOnboardingSuccessBanner(true);
+
+  if (pendingJobIdRef.current && created) {
+    setRequestByJobId((prev) => ({
+      ...prev,
+      [pendingJobIdRef.current]: {
+        ...created,
+        status: submitted.status,
+      },
+    }));
+    pendingJobIdRef.current = null;
   }
+}
+  
 
   async function openDirectOnboarding(run) {
     setReviewMessage("");

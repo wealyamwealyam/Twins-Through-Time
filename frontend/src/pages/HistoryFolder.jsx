@@ -10,6 +10,7 @@ import {
   getOnboardingRequests,
   updateOnboardingRequest,
   deleteOnboardingRequest,
+  submitOnboardingRequest,
 } from "../services/onboardingRequestService";
 
 function toReviewImage(photo) {
@@ -158,15 +159,21 @@ export default function HistoryFolder() {
   }
 
   async function handleOnboardingSubmit(title, notes) {
-    const created = await createOnboardingRequest({
-      title,
-      notes,
-      photoIds: photos.map((p) => p.id),
-    });
-    setExistingRequest(created);
-    setShowOnboardingModal(false);
-    setOnboardingSuccessBanner(true);
-  }
+  const created = await createOnboardingRequest({
+    title,
+    notes,
+    photoIds: photos.map((p) => p.id),
+  });
+
+  const submitted = await submitOnboardingRequest(created.id);
+
+  setExistingRequest({
+    ...created,
+    status: submitted.status,
+  });
+  setShowOnboardingModal(false);
+  setOnboardingSuccessBanner(true);
+}
 
   async function handleOnboardingEdit(title, notes) {
     const updated = await updateOnboardingRequest(existingRequest.id, { title, notes });
@@ -175,17 +182,12 @@ export default function HistoryFolder() {
     setOnboardingSuccessBanner(true);
   }
 
-  async function handleOnboardingDelete() {
-    setDeleting(true);
-    try {
-      await deleteOnboardingRequest(existingRequest.id);
-      setExistingRequest(null);
-      setShowDeleteConfirm(false);
-      setOnboardingSuccessBanner(false);
-    } finally {
-      setDeleting(false);
-    }
-  }
+async function handleOnboardingDelete() {
+  await deleteOnboardingRequest(existingRequest.id);
+  setExistingRequest(null);
+  setShowEditModal(false);
+  setOnboardingSuccessBanner(false);
+}
 
   return (
     <div className="mx-auto max-w-5xl p-6">

@@ -20,6 +20,12 @@ export function createOnboardingRequest({ title, notes, photoIds }) {
   });
 }
 
+export function submitOnboardingRequest(id) {
+  return apiRequest(`/onboarding-requests/${id}/submit`, {
+    method: "POST",
+  });
+}
+
 /**
  * List onboarding requests (filtered by status, page, limit).
  */
@@ -56,4 +62,29 @@ export function updateOnboardingRequest(id, { title, notes }) {
  */
 export function deleteOnboardingRequest(id) {
   return apiRequest(`/onboarding-requests/${id}`, { method: "DELETE" });
+}
+
+export function assignOnboardingReviewer(id, reviewerId) {
+  return apiRequest(`/onboarding-requests/${id}/assign`, {
+    method: "PATCH",
+    body: JSON.stringify({ reviewerId }),
+  });
+}
+
+export function approveOnboardingRequest(id, adminNote = "") {
+  return apiRequest(`/onboarding-requests/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({
+      adminNote: adminNote || null,
+    }),
+  });
+}
+
+export function rejectOnboardingRequest(id, adminNote = "") {
+  return apiRequest(`/onboarding-requests/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({
+      adminNote: adminNote || null,
+    }),
+  });
 }

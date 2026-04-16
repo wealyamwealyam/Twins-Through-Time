@@ -16,6 +16,7 @@ import {
   getOwnProfile,
   updateOwnProfile,
   getUserById,
+  deleteOwnAccount,
   updateUserRole,
 } from '../controllers/accountController.js';
 
@@ -28,6 +29,9 @@ router.get('/profile', authenticate, getOwnProfile);
 
 // PATCH /account/profile  – any authenticated user
 router.patch('/profile', authenticate, updateOwnProfile);
+
+// DELETE /account/profile – any authenticated user
+router.delete('/profile', authenticate, deleteOwnAccount);
 
 // ── Admin: manage any user ───────────────────────────────────────────────────
 

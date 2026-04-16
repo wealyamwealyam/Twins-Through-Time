@@ -28,6 +28,7 @@ export default function Profile() {
     reasonMessage: "",
   });
   const [isRequestingRole, setIsRequestingRole] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,6 +152,30 @@ export default function Profile() {
       setIsSaving(false);
     }
   }
+
+  async function handleDeleteAccount() {
+  const confirmed = window.confirm(
+    "Are you sure you want to delete your account? This action cannot be undone."
+  );
+
+  if (!confirmed) return;
+
+  setIsDeleting(true);
+  setMessage("");
+
+  try {
+    await apiRequest("/account/profile", {
+      method: "DELETE",
+    });
+
+    clearBackendSession();
+    navigate("/login", { replace: true });
+  } catch (error) {
+    setMessage(error?.message || "Unable to delete account.");
+  } finally {
+    setIsDeleting(false);
+  }
+}
 
   async function submitRoleRequest(e) {
     e.preventDefault();
@@ -403,6 +428,25 @@ export default function Profile() {
               )}
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-6">
+        <h2 className="text-lg font-semibold text-red-900">Danger zone</h2>
+        <p className="mt-2 text-sm text-red-700">
+          Deleting your account permanently removes your profile and signs you out.
+          This action cannot be undone.
+        </p>
+
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={handleDeleteAccount}
+            disabled={isDeleting}
+            className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition disabled:opacity-60"
+          >
+            {isDeleting ? "Deleting account..." : "Delete account"}
+          </button>
         </div>
       </section>
     </div>

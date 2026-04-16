@@ -11,6 +11,10 @@ export default function AdminUsers() {
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [total, setTotal] = useState(0);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [requestUsersById, setRequestUsersById] = useState({});
+  const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+  const [requestActionId, setRequestActionId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +64,50 @@ export default function AdminUsers() {
     };
   }, [roleFilter, statusFilter, search]);
 
+  useEffect(() => {
+  let cancelled = false;
+
+  async function loadPendingRequests() {
+    setIsLoadingRequests(true);
+
+    try {
+      const [requestResult, allUsersResult] = await Promise.all([
+        apiRequest("/account-change-requests?status=pending&limit=100"),
+        apiRequest("/admin/users?limit=100"),
+      ]);
+
+      if (cancelled) return;
+
+      const requests = requestResult?.data || [];
+      const allUsers = allUsersResult?.data || [];
+
+      const map = {};
+      for (const user of allUsers) {
+        map[user.id] = user;
+      }
+
+      setPendingRequests(requests);
+      setRequestUsersById(map);
+    } catch (error) {
+      if (!cancelled) {
+        setPendingRequests([]);
+        setRequestUsersById({});
+        setMessage(error?.message || "Unable to load account change requests.");
+      }
+    } finally {
+      if (!cancelled) {
+        setIsLoadingRequests(false);
+      }
+    }
+  }
+
+  loadPendingRequests();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
   async function deactivateUser(id) {
     setMessage("");
 
@@ -98,6 +146,31 @@ export default function AdminUsers() {
     }
   }
 
+  async function deleteUser(id) {
+  const confirmed = window.confirm(
+    "Delete this user permanently? This action cannot be undone."
+  );
+
+  if (!confirmed) return;
+
+  setMessage("");
+
+  try {
+    await apiRequest(`/admin/users/${id}`, {
+      method: "DELETE",
+    });
+
+    setUsers((current) => current.filter((user) => user.id !== id));
+    setPendingRequests((current) =>
+      current.filter((request) => request.userId !== id)
+    );
+    setTotal((current) => Math.max(0, current - 1));
+    setMessage("User deleted.");
+  } catch (error) {
+    setMessage(error?.message || "Unable to delete user.");
+  }
+}
+
   async function updateRole(id, accountType) {
     setMessage("");
 
@@ -115,6 +188,70 @@ export default function AdminUsers() {
       setMessage(error?.message || "Unable to update user role.");
     }
   }
+
+  function getRequestUserLabel(userId) {
+  const user = requestUsersById[userId];
+  if (!user) return userId;
+  return user.username || user.email || userId;
+}
+
+async function reviewAccessRequest(id, status) {
+  setRequestActionId(id);
+  setMessage("");
+
+  try {
+    await apiRequest(`/account-change-requests/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+
+    const reviewed = pendingRequests.find((request) => request.id === id);
+
+    setPendingRequests((current) =>
+      current.filter((request) => request.id !== id)
+    );
+
+    if (status === "approved" && reviewed?.userId) {
+      setUsers((current) =>
+        current.map((user) =>
+          user.id === reviewed.userId
+            ? { ...user, accountType: reviewed.requestingAccount }
+            : user
+        )
+      );
+    }
+
+    setMessage(
+      status === "approved"
+        ? "Access request approved."
+        : "Access request rejected."
+    );
+
+  } catch (error) {
+    setMessage(error?.message || "Unable to review access request.");
+  } finally {
+    setRequestActionId("");
+  }
+
+}
+
+const roleRank = {
+  community_member: 0,
+  contributor: 1,
+  admin: 2,
+};
+
+const visiblePendingRequests = pendingRequests.filter((request) => {
+  const liveUser = requestUsersById[request.userId];
+  if (!liveUser) return true;
+
+  const liveRank = roleRank[liveUser.accountType] ?? -1;
+  const requestedRank = roleRank[request.requestingAccount] ?? -1;
+
+  return liveRank < requestedRank;
+});
+
+
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -236,25 +373,136 @@ export default function AdminUsers() {
                     {formatDate(user.updatedAt || user.createdAt)}
                   </td>
                   <td className="py-4">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        user.isActive ? deactivateUser(user.id) : reactivateUser(user.id)
-                      }
-                      className={[
-                        "rounded-xl px-4 py-2 text-xs font-semibold transition",
-                        user.isActive
-                          ? "bg-red-50 text-red-700 hover:bg-red-100"
-                          : "bg-gray-900 text-white hover:bg-gray-800",
-                      ].join(" ")}
-                    >
-                      {user.isActive ? "Deactivate" : "Reactivate"}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          user.isActive ? deactivateUser(user.id) : reactivateUser(user.id)
+                        }
+                        className={[
+                          "rounded-xl px-4 py-2 text-xs font-semibold transition",
+                          user.isActive
+                            ? "bg-red-50 text-red-700 hover:bg-red-100"
+                            : "bg-gray-900 text-white hover:bg-gray-800",
+                        ].join(" ")}
+                      >
+                        {user.isActive ? "Deactivate" : "Reactivate"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => deleteUser(user.id)}
+                        className="rounded-xl bg-red-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-red-700"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">
+              Pending access requests
+            </h2>
+            <p className="mt-1 text-sm text-gray-600">
+              Review contributor and admin access requests submitted by users.
+            </p>
+          </div>
+
+          <div className="text-sm text-gray-500">
+            {isLoadingRequests
+              ? "Loading..."
+              : `${visiblePendingRequests.length} pending request${visiblePendingRequests.length === 1 ? "" : "s"}`}
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4">
+          {isLoadingRequests ? (
+            <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center">
+              <div className="text-base font-semibold text-gray-900">
+                Loading pending requests...
+              </div>
+            </div>
+          ) : visiblePendingRequests.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center">
+              <div className="text-base font-semibold text-gray-900">
+                No pending access requests
+              </div>
+              <div className="mt-2 text-sm text-gray-500">
+                New contributor or admin requests will appear here.
+              </div>
+            </div>
+          ) : (
+            visiblePendingRequests.map((request) => {
+              const isWorking = requestActionId === request.id;
+
+              return (
+                <article
+                  key={request.id}
+                  className="rounded-2xl border border-gray-200 p-5"
+                >
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {getRequestUserLabel(request.userId)}
+                        </h3>
+                        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                          pending
+                        </span>
+                      </div>
+
+                      <div className="mt-2 text-sm text-gray-600">
+                        Requesting:{" "}
+                        <span className="font-semibold text-gray-900">
+                          {request.requestingAccount}
+                        </span>
+                      </div>
+
+                      <div className="mt-1 text-sm text-gray-500">
+                        Current role: {request.currentAccount}
+                      </div>
+
+                      <div className="mt-1 text-sm text-gray-500">
+                        Submitted {formatDate(request.createdAt)}
+                      </div>
+
+                      <div className="mt-4 rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                        {request.reasonMessage}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => reviewAccessRequest(request.id, "approved")}
+                        disabled={isWorking}
+                        className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        {isWorking ? "Working..." : "Approve"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => reviewAccessRequest(request.id, "rejected")}
+                        disabled={isWorking}
+                        className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {isWorking ? "Working..." : "Reject"}
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          )}
         </div>
       </section>
     </div>

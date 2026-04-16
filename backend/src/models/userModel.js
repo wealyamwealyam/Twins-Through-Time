@@ -137,3 +137,16 @@ export const toPublic = (user) => {
   const { passwordHash, ...safe } = user;
   return safe;
 };
+
+/**
+ * Delete user id.
+ */
+export const deleteUserById = async (id) => {
+  const { error } = await supabase
+    .from('users')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+  return true;
+};

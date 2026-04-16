@@ -16,11 +16,13 @@ import {
   findAll,
   findById,
   updateUser,
+  deleteUserById,
   toPublic,
 } from '../models/userModel.js';
 import { findPhotos } from '../models/photoModel.js';
 import { findOnboardingRequests } from '../models/onboardingRequestModel.js';
 import { countScrapeJobs } from '../models/scrapeJobModel.js';
+import { deleteAllUserRefreshTokens } from '../models/authModel.js';
 
 // ---------------------------------------------------------------------------
 // In-memory invite token store  (swap for DB when available)
@@ -167,6 +169,36 @@ export const reactivateUser = async (req, res) => {
 
   await updateUser(user.id, { isActive: true });
   return res.status(200).json({ id: user.id, isActive: true });
+};
+
+export const deleteUser = async (req, res) => {
+  const user = await findById(req.params.id);
+
+  if (!user) {
+    return res.status(404).json(errBody('NOT_FOUND', 'User not found.'));
+  }
+
+  // Prevent admins from deleting themselves from the admin panel
+  if (user.id === req.user.id) {
+    return res.status(422).json(
+      errBody('UNPROCESSABLE', 'You cannot delete your own account from the admin panel.')
+    );
+  }
+
+  try {
+    await deleteAllUserRefreshTokens(user.id);
+    await deleteUserById(user.id);
+
+    return res.status(200).json({
+      id: user.id,
+      deleted: true,
+    });
+  } catch (error) {
+    console.error('deleteUser error:', error);
+    return res.status(500).json(
+      errBody('INTERNAL_SERVER_ERROR', 'Unable to delete user.')
+    );
+  }
 };
 
 // ---------------------------------------------------------------------------

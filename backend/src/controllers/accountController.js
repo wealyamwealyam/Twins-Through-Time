@@ -13,6 +13,7 @@ import {
   findById,
   findAll,
   updateUser,
+  deleteUserById,
   toPublic,
 } from '../models/userModel.js';
 
@@ -24,6 +25,8 @@ import {
   validateGender,
   validateAccountType,
 } from '../utils/validators.js';
+
+import { deleteAllUserRefreshTokens } from '../models/authModel.js';
 
 // ---------------------------------------------------------------------------
 // GET /account/profile  🔒
@@ -119,6 +122,38 @@ export const updateOwnProfile = async (req, res) => {
 
   const updated = await updateUser(req.user.id, updates);
   return res.status(200).json(toPublic(updated));
+};
+
+export const deleteOwnAccount = async (req, res) => {
+  const user = await findById(req.user.id);
+
+  if (!user) {
+    return res.status(404).json({
+      error: { code: 'NOT_FOUND', message: 'User not found.', details: null },
+    });
+  }
+
+  try {
+    // Invalidate refresh tokens explicitly before deleting the user.
+    await deleteAllUserRefreshTokens(req.user.id);
+
+    // Delete the user row. Related rows are handled by schema FK rules.
+    await deleteUserById(req.user.id);
+
+    return res.status(200).json({
+      message: 'Account deleted successfully.',
+    });
+  } catch (error) {
+    console.error('deleteOwnAccount error:', error);
+
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Unable to delete account.',
+        details: null,
+      },
+    });
+  }
 };
 
 // ---------------------------------------------------------------------------
