@@ -183,25 +183,46 @@ def build_image_candidates(site_base: str, api_item: dict[str, Any]) -> list[str
     return candidates
 
 
+def infer_front_back_label(page_title: str | None) -> str:
+    if not page_title:
+        return ""
+
+    lowered = page_title.lower()
+    if re.search(r"\b(front|recto|obverse)\b", lowered):
+        return "front"
+    if re.search(r"\b(back|verso|reverse)\b", lowered):
+        return "back"
+    return ""
+
+
 def build_image_candidate_groups(
     site_base: str, collection_alias: str, item_id: str, api_item: dict[str, Any]
-) -> list[list[str]]:
+) -> list[dict[str, Any]]:
     """
-    Returns image candidate groups.
+    Returns image candidate groups with optional labels.
     - For compound objects, returns one group per page.
     - For non-compound objects, returns one main group.
+
+    Each group has shape:
+      {"label": "front"|"back"|"", "candidates": [url1, url2, ...]}
     """
     main_group = build_image_candidates(site_base, api_item)
     object_info = api_item.get("objectInfo")
     page_entries = object_info.get("page") if isinstance(object_info, dict) else None
 
-    groups: list[list[str]] = []
+    groups: list[dict[str, Any]] = []
     if isinstance(page_entries, list) and page_entries:
         for page in page_entries:
             if not isinstance(page, dict):
                 continue
+
             page_ptr = str(page.get("pageptr", "")).strip()
+            page_title = str(page.get("pagetitle", "")).strip()
+            label = infer_front_back_label(page_title)
+
             if not page_ptr or page_ptr == item_id:
+                if main_group:
+                    groups.append({"label": label, "candidates": main_group})
                 continue
 
             try:
@@ -211,22 +232,32 @@ def build_image_candidate_groups(
 
             page_group = build_image_candidates(site_base, page_item)
             if page_group:
-                groups.append(page_group)
+                groups.append({"label": label, "candidates": page_group})
 
         if not groups and main_group:
-            groups.append(main_group)
+            groups.append({"label": "", "candidates": main_group})
     else:
         if main_group:
-            groups.append(main_group)
+            groups.append({"label": "", "candidates": main_group})
 
-    unique_groups: list[list[str]] = []
+    unique_groups: list[dict[str, Any]] = []
     seen: set[tuple[str, ...]] = set()
     for group in groups:
-        key = tuple(group)
+        candidates = group.get("candidates", []) if isinstance(group, dict) else []
+        if not isinstance(candidates, list):
+            continue
+
+        key = tuple(candidates)
         if key in seen:
             continue
         seen.add(key)
-        unique_groups.append(group)
+
+        unique_groups.append(
+            {
+                "label": str(group.get("label", "")).strip() if isinstance(group, dict) else "",
+                "candidates": candidates,
+            }
+        )
 
     return unique_groups
 
@@ -363,7 +394,12 @@ def save_record_folder(
         # Pick the first (best) candidate from the first image group
         best_image_url: str | None = None
         for group in image_groups:
-            if isinstance(group, list) and group:
+            if isinstance(group, dict):
+                raw_candidates = group.get("candidates", [])
+                if isinstance(raw_candidates, list) and raw_candidates:
+                    best_image_url = str(raw_candidates[0])
+                    break
+            elif isinstance(group, list) and group:
                 best_image_url = str(group[0])
                 break
 
@@ -396,13 +432,44 @@ def save_record_folder(
         record_folder = session_dir / folder_name
         record_folder.mkdir(parents=True, exist_ok=True)
 
+        def build_image_stem(label: str, group_index: int, used_stems: set[str]) -> str:
+            desired = label.strip().lower()
+            if desired in ("front", "back"):
+                stem = desired
+            else:
+                stem = f"image_{group_index:02d}"
+
+            if stem not in used_stems:
+                used_stems.add(stem)
+                return stem
+
+            suffix = 2
+            while f"{stem}_{suffix}" in used_stems:
+                suffix += 1
+            resolved = f"{stem}_{suffix}"
+            used_stems.add(resolved)
+            return resolved
+
+        used_stems: set[str] = set()
         images_saved = 0
         for group_index, group in enumerate(image_groups, start=1):
-            if not isinstance(group, list):
+            label = ""
+            candidates: list[str] = []
+
+            if isinstance(group, dict):
+                label = str(group.get("label", "")).strip()
+                raw_candidates = group.get("candidates", [])
+                if isinstance(raw_candidates, list):
+                    candidates = [str(item) for item in raw_candidates if isinstance(item, str)]
+            elif isinstance(group, list):
+                candidates = [str(item) for item in group if isinstance(item, str)]
+
+            if not candidates:
                 continue
 
+            image_stem = build_image_stem(label, group_index, used_stems)
             saved_this_group = False
-            for candidate in group:
+            for candidate in candidates:
                 if robots_enforcer is not None:
                     robots_enforcer(candidate, "image URL")
                 ext = Path(urlparse(candidate).path).suffix
@@ -410,7 +477,7 @@ def save_record_folder(
                     ext = ".jp2"
                 if not ext:
                     ext = ".jpg"
-                image_path = record_folder / f"image_{group_index:02d}{ext}"
+                image_path = record_folder / f"{image_stem}{ext}"
                 if download_image(candidate, image_path):
                     images_saved += 1
                     saved_this_group = True
@@ -419,6 +486,7 @@ def save_record_folder(
 
             if not saved_this_group:
                 logger.warn(f"Could not save image group {group_index} for record {record_id}")
+
 
         if images_saved == 0:
             logger.warn(f"No valid image downloaded for record {record_id}")
