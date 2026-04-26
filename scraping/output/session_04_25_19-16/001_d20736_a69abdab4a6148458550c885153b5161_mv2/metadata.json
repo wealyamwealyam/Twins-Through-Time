@@ -1,0 +1,24 @@
+{
+  "First Name": "Frank",
+  "Middle Name or Initial": "Biddle",
+  "Last Name": "Ward",
+  "Military Unit": "15th Pennsylvania Cavalry",
+  "Regiment Number": 15,
+  "Regiment State": "PA",
+  "Branch": "Pennsylvania Cavalry",
+  "Company": "",
+  "Age": null,
+  "Year Born": null,
+  "Transcript": "",
+  "Confidence": 0.6447,
+  "Source": "https://www.civilwarpittsburgh.com/post/the-ground-seemed-to-be-sacred-the-death-of-major-frank-biddle-ward",
+  "Other": {
+    "Ambiguity": "Age and Regiment Number unclear due to limited information",
+    "Hint Name Source": "caption",
+    "Hint Unit Source": "caption",
+    "Source URL": "https://www.civilwarpittsburgh.com/post/the-ground-seemed-to-be-sacred-the-death-of-major-frank-biddle-ward",
+    "Image URL": "https://static.wixstatic.com/media/d20736_a69abdab4a6148458550c885153b5161~mv2.jpg",
+    "Image Heading": "\"The ground seemed to be sacred.\" - The death of Major Frank Biddle Ward",
+    "Image Caption": "Major Frank Biddle Ward, 15th Pennsylvania Cavalry"
+  }
+}

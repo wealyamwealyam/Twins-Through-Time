@@ -29,7 +29,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from llm.llm import extract_metadata  # noqa: E402
+# Avoid UnicodeEncodeError from third-party libraries printing non-ASCII symbols.
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+from llm.llm import extract_metadata, NON_CONTENTDM_SYSTEM_PROMPT  # noqa: E402
 from robots_checker import check_url_for_scraping  # noqa: E402
 from contentdm_scraper import (  # noqa: E402
     fetch_text,
@@ -159,6 +168,100 @@ CONTENT_HINT_TOKENS = {
     "brigade",
 }
 
+MILITARY_RANK_TOKENS = {
+    "major",
+    "captain",
+    "general",
+    "lieutenant",
+    "lt",
+    "sergeant",
+    "private",
+    "colonel",
+    "commander",
+    "admiral",
+    "officer",
+}
+
+NAME_STOPWORDS = {
+    "civil",
+    "war",
+    "image",
+    "photo",
+    "portrait",
+    "major",
+    "captain",
+    "general",
+    "lieutenant",
+    "sergeant",
+    "private",
+    "colonel",
+    "officer",
+    "the",
+    "and",
+    "during",
+    "from",
+    "with",
+    "army",
+    "navy",
+    "infantry",
+    "cavalry",
+}
+
+UNIT_HINT_PATTERN = re.compile(
+    r"([A-Z0-9][^;\n]{0,140}\b(?:Regiment|Infantry|Cavalry|Artillery|Battalion|Brigade|"
+    r"Army|Navy|Marine|Marines|Militia|Volunteers?)\b[^;\n]{0,80})",
+    flags=re.IGNORECASE,
+)
+
+ORDINAL_UNIT_PATTERN = re.compile(
+    r"\b\d{1,3}(?:st|nd|rd|th)\s+(?:[A-Z][A-Za-z.\-]+\s+){0,4}"
+    r"(?:Cavalry|Infantry|Artillery|Regiment|Battalion|Brigade|Volunteers?)\b",
+    flags=re.IGNORECASE,
+)
+
+COMPANY_UNIT_PATTERN = re.compile(
+    r"\b(?:Company|Co\.?)\s*([A-Z])\b(?:\s*,\s*|\s+in\s+)?"
+    r"(\d{1,3}(?:st|nd|rd|th)\s+(?:[A-Z][A-Za-z.\-]+\s+){0,4}"
+    r"(?:Cavalry|Infantry|Artillery|Regiment|Battalion|Brigade|Volunteers?))",
+    flags=re.IGNORECASE,
+)
+
+STATE_NAME_TO_ABBR_HINT = {
+    "alabama": "AL",
+    "arkansas": "AR",
+    "california": "CA",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "florida": "FL",
+    "georgia": "GA",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new york": "NY",
+    "north carolina": "NC",
+    "ohio": "OH",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "tennessee": "TN",
+    "texas": "TX",
+    "vermont": "VT",
+    "virginia": "VA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+}
 
 class SessionLogger:
     def __init__(self, log_path: Path) -> None:
@@ -329,6 +432,23 @@ def extract_img_source(tag: str) -> str | None:
     return parse_attr(tag, "src")
 
 
+def normalize_generic_image_url(image_url: str) -> str:
+    """
+    Normalize known CDN transforms to get higher-quality originals.
+    Currently handles Wix transformed image paths.
+    """
+    parsed = urlparse(image_url)
+    host = parsed.netloc.lower()
+
+    if "static.wixstatic.com" in host:
+        match = re.search(r"/media/([^/]+\.(?:jpg|jpeg|png|webp|tif|tiff))", parsed.path, flags=re.IGNORECASE)
+        if match:
+            filename = match.group(1)
+            return f"{parsed.scheme}://{parsed.netloc}/media/{filename}"
+
+    return image_url
+
+
 def find_content_spans(html: str) -> list[tuple[int, int]]:
     patterns = [
         r"<article\b[\s\S]*?</article>",
@@ -353,6 +473,81 @@ def find_content_spans(html: str) -> list[tuple[int, int]]:
         else:
             merged.append((start, end))
     return merged
+
+
+def truncate_text(text: str, max_chars: int) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if len(compact) <= max_chars:
+        return compact
+    return compact[:max_chars].rstrip()
+
+
+def get_primary_content_region(html: str) -> tuple[int, int]:
+    spans = find_content_spans(html)
+    if not spans:
+        return 0, len(html)
+    return max(spans, key=lambda span: span[1] - span[0])
+
+
+def build_article_summary(html: str, max_chars: int = 2400) -> str:
+    start, end = get_primary_content_region(html)
+    region = html[start:end]
+
+    paragraphs: list[str] = []
+    for match in re.finditer(r"<p\b[^>]*>([\s\S]*?)</p>", region, flags=re.IGNORECASE):
+        paragraph = clean_html_text(match.group(1))
+        if len(paragraph) >= 40:
+            paragraphs.append(paragraph)
+
+    if paragraphs:
+        return truncate_text(" ".join(paragraphs[:10]), max_chars)
+
+    return truncate_text(clean_html_text(region), max_chars)
+
+
+def extract_heading_before(html: str, position: int, floor: int = 0) -> str:
+    region = html[max(0, floor):position]
+    last_heading = ""
+    for match in re.finditer(r"<h[1-6]\b[^>]*>([\s\S]*?)</h[1-6]>", region, flags=re.IGNORECASE):
+        heading = clean_html_text(match.group(1))
+        if heading:
+            last_heading = heading
+    return last_heading
+
+
+def extract_figure_caption(html: str, img_start: int, img_end: int) -> str:
+    figure_start = html.rfind("<figure", 0, img_start)
+    if figure_start == -1:
+        return ""
+
+    figure_end = html.find("</figure>", img_end)
+    if figure_end == -1 or figure_end < img_end:
+        return ""
+
+    figure_html = html[figure_start : figure_end + len("</figure>")]
+    caption_match = re.search(r"<figcaption\b[^>]*>([\s\S]*?)</figcaption>", figure_html, flags=re.IGNORECASE)
+    if not caption_match:
+        return ""
+
+    return clean_html_text(caption_match.group(1))
+
+
+def extract_nearby_paragraphs(html: str, img_start: int, img_end: int, window: int = 2600) -> str:
+    left = max(0, img_start - window)
+    right = min(len(html), img_end + window)
+    region = html[left:right]
+
+    paragraphs: list[str] = []
+    for match in re.finditer(r"<p\b[^>]*>([\s\S]*?)</p>", region, flags=re.IGNORECASE):
+        paragraph = clean_html_text(match.group(1))
+        if len(paragraph) >= 35:
+            paragraphs.append(paragraph)
+
+    if not paragraphs:
+        return ""
+
+    # Keep nearby context concise but informative for the LLM.
+    return truncate_text(" ".join(paragraphs[:4]), 1400)
 
 
 def in_spans(position: int, spans: list[tuple[int, int]]) -> bool:
@@ -429,6 +624,7 @@ def extract_non_contentdm_images(page_url: str, html: str) -> list[dict[str, Any
     entries: list[dict[str, Any]] = []
     seen: set[str] = set()
     content_spans = find_content_spans(html)
+    content_start, _ = get_primary_content_region(html)
 
     for idx, match in enumerate(re.finditer(r"<img\b[^>]*>", html, flags=re.IGNORECASE), start=1):
         tag = match.group(0)
@@ -439,15 +635,29 @@ def extract_non_contentdm_images(page_url: str, html: str) -> list[dict[str, Any
             continue
 
         image_url = urljoin(page_url, src).split("#", 1)[0]
+        image_url = normalize_generic_image_url(image_url)
         if image_url in seen:
             continue
         seen.add(image_url)
 
         alt_text = parse_attr(tag, "alt") or ""
+
         left = max(0, match.start() - 1200)
         right = min(len(html), match.end() + 1200)
         context_html = html[left:right]
-        context_text = clean_html_text(context_html)
+        fallback_context = clean_html_text(context_html)
+
+        heading_text = extract_heading_before(html, match.start(), floor=content_start)
+        caption_text = extract_figure_caption(html, match.start(), match.end())
+        nearby_text = extract_nearby_paragraphs(html, match.start(), match.end())
+
+        context_parts = [
+            f"Heading: {heading_text}" if heading_text else "",
+            f"Caption: {caption_text}" if caption_text else "",
+            f"Nearby Paragraphs: {nearby_text}" if nearby_text else "",
+            f"Fallback Context: {fallback_context}" if fallback_context else "",
+        ]
+        context_text = truncate_text("\n".join(part for part in context_parts if part), 2600)
 
         is_content_image = in_spans(match.start(), content_spans)
 
@@ -467,6 +677,9 @@ def extract_non_contentdm_images(page_url: str, html: str) -> list[dict[str, Any
                 "image_url": image_url,
                 "alt_text": alt_text,
                 "context_text": context_text,
+                "heading_text": heading_text,
+                "caption_text": caption_text,
+                "nearby_text": nearby_text,
                 "score": score,
                 "in_content": is_content_image,
                 "reject_reason": reject_reason,
@@ -477,11 +690,247 @@ def extract_non_contentdm_images(page_url: str, html: str) -> list[dict[str, Any
     return entries
 
 
+def _normalize_name_token(token: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z'.-]", "", token).strip()
+    if not cleaned:
+        return ""
+    if len(cleaned) == 2 and cleaned[1] == "." and cleaned[0].isalpha():
+        return f"{cleaned[0].upper()}."
+    if cleaned.isupper() or cleaned.islower():
+        return cleaned.title()
+    return cleaned
+
+
+def _extract_name_hint(text: str) -> tuple[str | None, str | None, str | None]:
+    if not text:
+        return None, None, None
+
+    compact = re.sub(r"\s+", " ", text).strip()
+    compact = re.sub(r"\([^)]*\)", " ", compact)
+    compact = re.sub(r"\s+", " ", compact).strip()
+
+    rank_pattern = (
+        r"\b(?:Major|Captain|General|Lieutenant|Lt\.?|Sergeant|Private|Colonel|"
+        r"Commander|Admiral|Officer)\s+"
+        r"([A-Z][A-Za-z'-]+)(?:\s+([A-Z]\.?|[A-Z][A-Za-z'-]+))?\s+([A-Z][A-Za-z'-]+)\b"
+    )
+    match = re.search(rank_pattern, compact, flags=re.IGNORECASE)
+    if match:
+        first = _normalize_name_token(match.group(1))
+        middle = _normalize_name_token(match.group(2) or "")
+        last = _normalize_name_token(match.group(3))
+        return first or None, middle or None, last or None
+
+    leading = compact.split(",")[0].strip()
+    leading = re.sub(r"^(?:Portrait|Photo|Image)\s+(?:of\s+)?", "", leading, flags=re.IGNORECASE).strip()
+    raw_tokens = re.findall(r"[A-Za-z][A-Za-z'.-]*", leading)
+    if not raw_tokens:
+        return None, None, None
+
+    while raw_tokens and raw_tokens[0].lower().rstrip(".") in MILITARY_RANK_TOKENS:
+        raw_tokens = raw_tokens[1:]
+
+    if len(raw_tokens) < 2 or len(raw_tokens) > 4:
+        return None, None, None
+
+    first_token = raw_tokens[0].lower().rstrip(".")
+    last_token = raw_tokens[-1].lower().rstrip(".")
+    if first_token in NAME_STOPWORDS or last_token in NAME_STOPWORDS:
+        return None, None, None
+
+    first = _normalize_name_token(raw_tokens[0])
+    middle_tokens = raw_tokens[1:-1]
+    middle = " ".join(_normalize_name_token(token) for token in middle_tokens if _normalize_name_token(token))
+    last = _normalize_name_token(raw_tokens[-1])
+
+    if not first or not last:
+        return None, None, None
+    return first, (middle or None), last
+
+
+def _clean_unit_hint_text(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", text).strip(" ,.;:-")
+    cleaned = re.sub(r"\s*\((?:[^)]{20,})\)\s*$", "", cleaned).strip(" ,.;:-")
+    return cleaned
+
+
+def _extract_unit_hint(text: str) -> str | None:
+    if not text:
+        return None
+
+    compact = re.sub(r"\s+", " ", text).strip()
+
+    company_match = COMPANY_UNIT_PATTERN.search(compact)
+    if company_match:
+        unit = _clean_unit_hint_text(company_match.group(2))
+        if unit:
+            return unit
+
+    ordinal_match = ORDINAL_UNIT_PATTERN.search(compact)
+    if ordinal_match:
+        unit = _clean_unit_hint_text(ordinal_match.group(0))
+        if unit:
+            return unit
+
+    generic_match = UNIT_HINT_PATTERN.search(compact)
+    if generic_match:
+        unit = _clean_unit_hint_text(generic_match.group(1))
+        if unit:
+            return unit
+
+    return None
+
+
+def _extract_company_hint(text: str) -> str | None:
+    if not text:
+        return None
+    match = re.search(r"\b(?:Company|Co\.?)\s*([A-Z])\b", text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return f"Company {match.group(1).upper()}"
+
+
+def _extract_regiment_number_hint(unit_text: str) -> int | None:
+    match = re.search(r"\b(\d{1,3})(?:st|nd|rd|th)\b", unit_text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _extract_regiment_state_hint(unit_text: str) -> str:
+    lowered = unit_text.lower()
+
+    abbr_match = re.search(r"\b([A-Z]{2})\b", unit_text)
+    if abbr_match:
+        code = abbr_match.group(1).upper()
+        if code in STATE_NAME_TO_ABBR_HINT.values():
+            return code
+
+    for state_name, state_abbr in STATE_NAME_TO_ABBR_HINT.items():
+        if re.search(rf"\b{re.escape(state_name)}\b", lowered):
+            return state_abbr
+
+    return ""
+
+
+def _extract_branch_hint(unit_text: str) -> str:
+    lowered = unit_text.lower()
+    branch_keywords = [
+        "cavalry",
+        "infantry",
+        "artillery",
+        "navy",
+        "marines",
+        "marine",
+        "army",
+        "militia",
+        "volunteers",
+    ]
+    for keyword in branch_keywords:
+        if keyword in lowered:
+            return keyword.title()
+    return ""
+
+
+def _choose_hint(candidates: list[tuple[str, str | None]]) -> tuple[str | None, str]:
+    for source, value in candidates:
+        if value:
+            return value, source
+    return None, ""
+
+
+def _apply_image_hints_to_metadata(
+    metadata: dict[str, Any],
+    caption_text: str,
+    alt_text: str,
+    nearby_text: str,
+) -> dict[str, Any]:
+    caption = caption_text.strip()
+    nearby = nearby_text.strip()
+    alt = alt_text.strip()
+
+    name_candidates = [
+        ("caption", _extract_name_hint(caption)),
+        ("nearby", _extract_name_hint(nearby)),
+        ("alt", _extract_name_hint(alt)),
+    ]
+    first, middle, last = None, None, None
+    name_source = ""
+    for source, name_tuple in name_candidates:
+        if any(name_tuple):
+            first, middle, last = name_tuple
+            name_source = source
+            break
+
+    unit_hint, unit_source = _choose_hint([
+        ("caption", _extract_unit_hint(caption)),
+        ("nearby", _extract_unit_hint(nearby)),
+        ("alt", _extract_unit_hint(alt)),
+    ])
+
+    company_hint, company_source = _choose_hint([
+        ("caption", _extract_company_hint(caption)),
+        ("nearby", _extract_company_hint(nearby)),
+        ("alt", _extract_company_hint(alt)),
+    ])
+
+    def set_field(key: str, value: str | None, source: str = "") -> None:
+        if not value:
+            return
+        current = metadata.get(key)
+        if source == "caption" or not current:
+            metadata[key] = value
+
+    set_field("First Name", first, name_source)
+    set_field("Middle Name or Initial", middle, name_source)
+    set_field("Last Name", last, name_source)
+    set_field("Military Unit", unit_hint, unit_source)
+    set_field("Company", company_hint, company_source)
+
+    resolved_unit = str(metadata.get("Military Unit") or "").strip()
+    if resolved_unit:
+        if metadata.get("Regiment Number") in (None, ""):
+            regiment_number = _extract_regiment_number_hint(resolved_unit)
+            if regiment_number is not None:
+                metadata["Regiment Number"] = regiment_number
+
+        regiment_state = str(metadata.get("Regiment State") or "").strip()
+        if not regiment_state:
+            state_hint = _extract_regiment_state_hint(resolved_unit)
+            if state_hint:
+                metadata["Regiment State"] = state_hint
+
+        branch = str(metadata.get("Branch") or "").strip()
+        if not branch:
+            branch_hint = _extract_branch_hint(resolved_unit)
+            if branch_hint:
+                metadata["Branch"] = branch_hint
+
+    other = metadata.get("Other")
+    if not isinstance(other, dict):
+        other = {}
+    if first and last:
+        other.setdefault("Hint Name Source", name_source or "unknown")
+    if unit_hint:
+        other.setdefault("Hint Unit Source", unit_source or "unknown")
+    if company_hint:
+        other.setdefault("Hint Company Source", company_source or "unknown")
+    metadata["Other"] = other
+    return metadata
+
+
 def save_generic_record(
     record_index: int,
     image_url: str,
     alt_text: str,
     context_text: str,
+    heading_text: str,
+    caption_text: str,
+    nearby_text: str,
+    article_summary: str,
     page_url: str,
     page_title: str,
     session_dir: Path,
@@ -490,21 +939,42 @@ def save_generic_record(
 ) -> bool:
     enforce_robots(image_url, "image URL", logger=logger)
 
+    # Keep prompts compact and image-local to avoid copying metadata across images.
+    alt_for_llm = truncate_text(alt_text, 220)
+    heading_for_llm = truncate_text(heading_text, 180)
+    caption_for_llm = truncate_text(caption_text, 380)
+    nearby_for_llm = truncate_text(nearby_text, 620)
+    context_for_llm = truncate_text(context_text, 680)
+    has_strong_local_context = bool(caption_for_llm) or bool(
+        alt_for_llm and contains_any(alt_for_llm, PERSON_HINT_TOKENS)
+    )
+    article_for_llm = "" if has_strong_local_context else truncate_text(article_summary, 420)
+
     llm_document = (
         f"Source Page URL: {page_url}\n"
-        f"Page Title: {page_title}\n"
+        f"Page Title: {truncate_text(page_title, 180)}\n"
         f"Image URL: {image_url}\n"
-        f"Image Alt Text: {alt_text}\n"
-        f"Context Around Image: {context_text}\n"
+        f"Image Alt Text: {alt_for_llm}\n"
+        f"Image Heading: {heading_for_llm}\n"
+        f"Image Caption: {caption_for_llm}\n"
+        f"Image Nearby Paragraphs: {nearby_for_llm}\n"
+        f"Image Local Context: {context_for_llm}\n"
+        f"Article Summary (low priority): {article_for_llm}\n"
     )
 
     logger.info("Normalizing metadata with LLM")
     metadata = extract_metadata(
         llm_document,
-        maxTokens=400,
+        maxTokens=180,
         log_fn=lambda msg: logger.info(f"[llm][generic-{record_index:03d}] {msg}"),
+        system_prompt=NON_CONTENTDM_SYSTEM_PROMPT,
     )
-
+    metadata = _apply_image_hints_to_metadata(
+        metadata=metadata,
+        caption_text=caption_text,
+        alt_text=alt_text,
+        nearby_text=nearby_text,
+    )
     metadata["Source"] = page_url
 
     other = metadata.get("Other") if isinstance(metadata.get("Other"), dict) else {}
@@ -512,6 +982,10 @@ def save_generic_record(
     other.setdefault("Image URL", image_url)
     if alt_text:
         other.setdefault("Image Alt Text", alt_text)
+    if heading_text:
+        other.setdefault("Image Heading", heading_text)
+    if caption_text:
+        other.setdefault("Image Caption", caption_text)
     metadata["Other"] = other
 
     if api_client is not None:
@@ -575,20 +1049,29 @@ def run_generic_site(
     raw_html = fetch_text(url)
     html, used_js_renderer = get_best_html_for_non_contentdm(url, raw_html, logger)
     page_title = extract_page_title(html)
+    article_summary = build_article_summary(html)
 
     images = extract_non_contentdm_images(url, html)
-    if not images and not used_js_renderer:
-        logger.info("No usable images from raw HTML. Trying forced JS rendering fallback.")
-        rendered_html, rendered_used = get_best_html_for_non_contentdm(
-            url,
-            raw_html,
-            logger,
-            force_js=True,
-        )
-        if rendered_used:
-            html = rendered_html
+    if not images:
+        if used_js_renderer:
+            logger.info("No usable images from JS-rendered HTML. Falling back to raw HTML parse.")
+            html = raw_html
             page_title = extract_page_title(html) or page_title
+            article_summary = build_article_summary(html)
             images = extract_non_contentdm_images(url, html)
+        else:
+            logger.info("No usable images from raw HTML. Trying forced JS rendering fallback.")
+            rendered_html, rendered_used = get_best_html_for_non_contentdm(
+                url,
+                raw_html,
+                logger,
+                force_js=True,
+            )
+            if rendered_used:
+                html = rendered_html
+                page_title = extract_page_title(html) or page_title
+                article_summary = build_article_summary(html)
+                images = extract_non_contentdm_images(url, html)
 
     if not images:
         raise RuntimeError("No usable content images found on the submitted page.")
@@ -625,6 +1108,9 @@ def run_generic_site(
         image_url = str(entry["image_url"])
         alt_text = str(entry.get("alt_text", ""))
         context_text = str(entry.get("context_text", ""))
+        heading_text = str(entry.get("heading_text", ""))
+        caption_text = str(entry.get("caption_text", ""))
+        nearby_text = str(entry.get("nearby_text", ""))
 
         logger.info(f"({i}/{len(selected)}) Processing image URL: {image_url}")
         try:
@@ -633,6 +1119,10 @@ def run_generic_site(
                 image_url=image_url,
                 alt_text=alt_text,
                 context_text=context_text,
+                heading_text=heading_text,
+                caption_text=caption_text,
+                nearby_text=nearby_text,
+                article_summary=article_summary,
                 page_url=url,
                 page_title=page_title,
                 session_dir=session_dir,
@@ -798,3 +1288,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
+

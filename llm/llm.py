@@ -35,11 +35,21 @@ def _load_pipeline():
                 device_map="cpu",
                 torch_dtype=torch.float32,
             )
-            print(f"[llm] ✅ Loaded: {model}")
+
+            tokenizer = getattr(p, "tokenizer", None)
+            if tokenizer is not None and getattr(tokenizer, "pad_token_id", None) is None:
+                eos_id = getattr(tokenizer, "eos_token_id", None)
+                unk_id = getattr(tokenizer, "unk_token_id", None)
+                if eos_id is not None:
+                    tokenizer.pad_token_id = eos_id
+                elif unk_id is not None:
+                    tokenizer.pad_token_id = unk_id
+
+            print(f"[llm] Loaded: {model}")
             return p, model
         except Exception as e:
             if "gated" in str(e).lower() or "403" in str(e) or "401" in str(e):
-                print(f"[llm] ⚠️  {model} is gated / unauthorised — trying fallback.")
+                print(f"[llm] {model} is gated / unauthorised; trying fallback.")
                 if model == _FALLBACK_MODEL:
                     raise
             else:
@@ -111,9 +121,14 @@ ABBREV_TO_STATE_NAME = {abbr: name for name, abbr in STATE_NAME_TO_ABBREV.items(
 def run_llm(messages, maxTokens=256, log_fn: LogFn | None = None):
     if log_fn:
         log_fn(f"Running LLM inference (maxTokens={maxTokens})")
+
     outputs = pipeline(
         messages,
         max_new_tokens=maxTokens,
+        do_sample=False,
+        temperature=None,
+        top_p=None,
+        pad_token_id=getattr(getattr(pipeline, "tokenizer", None), "pad_token_id", None),
     )
     return outputs[0]["generated_text"][-1]["content"]
 
@@ -181,9 +196,28 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_metadata_messages(document_text: str) -> list[dict[str, str]]:
+NON_CONTENTDM_SYSTEM_PROMPT = (
+    "You extract metadata for one specific image from a non-CONTENTdm article/blog page. "
+    "The page may describe multiple people, so prioritize evidence in this order: "
+    "Image Caption, Image Alt Text, Nearby Paragraphs, Local Heading, then Article Summary. "
+    "Do not copy a person from article summary when caption/alt point to a different person. "
+    "If caption or nearby text contains a military unit phrase, copy that exact phrase into Military Unit. "
+    "If identity is ambiguous, leave uncertain fields null and explain ambiguity in Other. "
+    "Return ONLY one JSON object with these exact top-level keys: "
+    "First Name, Middle Name or Initial, Last Name, Military Unit, Regiment Number, "
+    "Regiment State, Branch, Company, Age, Year Born, Transcript, Confidence, Source, Other. "
+    "Rules: "
+    "(1) Unknown values -> null, except Confidence (0.0-1.0 number) and Source (URL string). "
+    "(2) Regiment Number, Age, and Year Born must be integers or null. "
+    "(3) Regiment State must be two-letter uppercase abbreviation. "
+    "(4) Branch, Company, and Transcript must be strings when known. "
+    "(5) Other must be a short key-value object. "
+    "(6) Do not add or remove top-level keys."
+)
+
+def build_metadata_messages(document_text: str, system_prompt: str | None = None) -> list[dict[str, str]]:
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
         {"role": "user", "content": document_text},
     ]
 
@@ -571,11 +605,16 @@ def _extract_first_json_block(text: str) -> str | None:
     return text[start : end + 1]
 
 
-def extract_metadata(document_text: str, maxTokens: int = 350, log_fn: LogFn | None = None) -> dict[str, Any]:
+def extract_metadata(
+    document_text: str,
+    maxTokens: int = 350,
+    log_fn: LogFn | None = None,
+    system_prompt: str | None = None,
+) -> dict[str, Any]:
     if log_fn:
         log_fn("Building metadata extraction prompt")
 
-    messages = build_metadata_messages(document_text)
+    messages = build_metadata_messages(document_text, system_prompt=system_prompt)
 
     try:
         response = run_llm(messages, maxTokens=maxTokens, log_fn=log_fn)
@@ -606,3 +645,5 @@ def extract_metadata(document_text: str, maxTokens: int = 350, log_fn: LogFn | N
 
     normalized = normalize_metadata_schema(parsed)
     return _finalize_confidence(normalized, document_text)
+
+

@@ -1,0 +1,23 @@
+{
+  "First Name": "Adolph",
+  "Middle Name or Initial": null,
+  "Last Name": "Rosengarten",
+  "Military Unit": null,
+  "Regiment Number": null,
+  "Regiment State": "",
+  "Branch": "",
+  "Company": "",
+  "Age": null,
+  "Year Born": null,
+  "Transcript": "",
+  "Confidence": 0.1218,
+  "Source": "https://www.civilwarpittsburgh.com/post/the-ground-seemed-to-be-sacred-the-death-of-major-frank-biddle-ward",
+  "Other": {
+    "Ambiguity": "Identity is ambiguous due to lack of clear information about the person in the image.",
+    "Hint Name Source": "caption",
+    "Source URL": "https://www.civilwarpittsburgh.com/post/the-ground-seemed-to-be-sacred-the-death-of-major-frank-biddle-ward",
+    "Image URL": "https://static.wixstatic.com/media/d20736_8dd69e54eabd4d828ee3562fee82d9e3~mv2.jpg",
+    "Image Heading": "\"The ground seemed to be sacred.\" - The death of Major Frank Biddle Ward",
+    "Image Caption": "Major Adolph Rosengarten - Killed at Stones River, Tennessee on December 29, 1862 (Library of Congress)"
+  }
+}
