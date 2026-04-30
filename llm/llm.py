@@ -3,8 +3,6 @@ import os
 import re
 from typing import Any, Callable
 
-import torch
-import transformers
 try:
     from groq import Groq
 except ImportError:
@@ -55,6 +53,15 @@ def _load_pipeline():
             "HF_TOKEN not found. Set GROQ_API_KEY for hosted inference, "
             "or set HF_TOKEN to use the local Hugging Face fallback."
         )
+
+    try:
+        import torch
+        import transformers
+    except ImportError as exc:
+        raise RuntimeError(
+            "Local Hugging Face fallback requires torch and transformers. "
+            "Install them with: pip install -r llm/requirements-local-fallback.txt"
+        ) from exc
 
     for model in [MODEL_ID, _FALLBACK_MODEL] if MODEL_ID == _PRIMARY_MODEL else [MODEL_ID]:
         try:

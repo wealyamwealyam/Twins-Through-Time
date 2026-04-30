@@ -119,6 +119,13 @@ class BackendApiClient:
             if resp.status_code == 409:
                 raise JobCancelled("Scrape job was cancelled.")
             resp.raise_for_status()
+            try:
+                body = resp.json()
+            except Exception:
+                body = {}
+            if isinstance(body, dict) and body.get("skippedDuplicate"):
+                print(f"[api] duplicate photo skipped: {body.get('imageUrl') or photo_data.get('imageUrl')}")
+                return True
             return True
         except JobCancelled:
             raise

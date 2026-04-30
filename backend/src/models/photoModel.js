@@ -168,6 +168,20 @@ const fromDb = (row) => {
   };
 };
 
+const normalizeImageUrl = (value) => {
+  if (!value || typeof value !== 'string') return '';
+  try {
+    const url = new URL(value.trim());
+    url.hash = '';
+    for (const key of ['token', 'expires', 'signature', 'download', 'dl']) {
+      url.searchParams.delete(key);
+    }
+    return url.toString();
+  } catch {
+    return value.trim();
+  }
+};
+
 // ---------------------------------------------------------------------------
 // CRUD helpers
 // ---------------------------------------------------------------------------
@@ -192,7 +206,7 @@ export const createPhoto = async ({
   const { data, error } = await supabase
     .from('photos')
     .insert([toDb({
-      scrapeJobId, submittedBy, imageUrl,
+      scrapeJobId, submittedBy, imageUrl: normalizeImageUrl(imageUrl),
       status: 'pending_review',
       isDuplicate: false, duplicateOfId: null,
       isAutoExtracted, metadataEditedBy: null, metadataEditedAt: null,
@@ -216,6 +230,23 @@ export const findPhotoById = async (id) => {
 
   if (error) return null;
   return fromDb(data);
+};
+
+/** Return an existing photo for this user and image URL, or null. */
+export const findPhotoByImageUrl = async ({ submittedBy, imageUrl }) => {
+  const normalized = normalizeImageUrl(imageUrl);
+  if (!submittedBy || !normalized) return null;
+
+  const { data, error } = await supabase
+    .from('photos')
+    .select('*')
+    .eq('submitted_by', submittedBy)
+    .eq('image_url', normalized)
+    .order('created_at', { ascending: true })
+    .limit(1);
+
+  if (error) return null;
+  return fromDb(data?.[0] ?? null);
 };
 
 /**

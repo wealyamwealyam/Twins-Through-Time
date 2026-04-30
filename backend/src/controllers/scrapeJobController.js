@@ -23,7 +23,7 @@ import {
   findScrapeJobs,
   updateScrapeJob,
 } from '../models/scrapeJobModel.js';
-import { createPhoto } from '../models/photoModel.js';
+import { createPhoto, findPhotoByImageUrl } from '../models/photoModel.js';
 
 const errBody = (code, message, details = null) => ({ error: { code, message, details } });
 
@@ -85,7 +85,7 @@ export const submitScrapeJob = async (req, res) => {
   // It will PATCH job status and POST photos back via the internal API.
   const pythonBin    = process.env.PYTHON_BIN      || (process.platform === 'win32' ? 'python' : 'python3');
   const scraperPath  = process.env.SCRAPER_PATH    || 'scraping/scraper.py';
-  const apiUrl       = process.env.INTERNAL_API_URL || 'http://localhost:3000';
+  const apiUrl       = process.env.INTERNAL_API_URL || `http://127.0.0.1:${process.env.PORT || 3000}`;
   const workerSecret = process.env.WORKER_SECRET   || '';
 
   if (!workerSecret) {
@@ -313,6 +313,19 @@ export const ingestPhoto = async (req, res) => {
 
   if (!imageUrl) {
     return res.status(400).json(errBody('VALIDATION_ERROR', 'imageUrl is required.'));
+  }
+
+  const duplicate = await findPhotoByImageUrl({
+    submittedBy: job.submittedBy,
+    imageUrl,
+  });
+
+  if (duplicate) {
+    return res.status(200).json({
+      ...duplicate,
+      skippedDuplicate: true,
+      duplicateOfId: duplicate.id,
+    });
   }
 
   const photo = await createPhoto({
