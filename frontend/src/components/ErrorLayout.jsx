@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import PropTypes from "prop-types";
 
 export default function ErrorLayout({
   code,
@@ -41,3 +42,16 @@ export default function ErrorLayout({
     </div>
   );
 }
+
+const actionShape = PropTypes.shape({
+  to: PropTypes.string.isRequired,
+  label: PropTypes.string.isRequired,
+});
+
+ErrorLayout.propTypes = {
+  code: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  title: PropTypes.string.isRequired,
+  message: PropTypes.string.isRequired,
+  primaryAction: actionShape,
+  secondaryAction: actionShape,
+};

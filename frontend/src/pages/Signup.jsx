@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
+import PropTypes from "prop-types";
 import { apiRequest, saveBackendSession } from "../utils/apiClient";
 
 export default function Signup() {
@@ -225,6 +226,14 @@ function Field({ label, value, onChange, placeholder, type = "text" }) {
   );
 }
 
+Field.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  placeholder: PropTypes.string,
+  type: PropTypes.string,
+};
+
 function PasswordField({ label, value, onChange, placeholder, visible, onToggle }) {
   return (
     <div>
@@ -249,6 +258,15 @@ function PasswordField({ label, value, onChange, placeholder, visible, onToggle 
   );
 }
 
+PasswordField.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  placeholder: PropTypes.string,
+  visible: PropTypes.bool.isRequired,
+  onToggle: PropTypes.func.isRequired,
+};
+
 function QuickCard({ title, desc, to }) {
   return (
     <Link
@@ -265,3 +283,9 @@ function QuickCard({ title, desc, to }) {
     </Link>
   );
 }
+
+QuickCard.propTypes = {
+  title: PropTypes.string.isRequired,
+  desc: PropTypes.string.isRequired,
+  to: PropTypes.string.isRequired,
+};

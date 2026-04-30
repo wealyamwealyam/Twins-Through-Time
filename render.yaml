@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: twins-through-time-api
+    runtime: node
+    buildCommand: npm install --prefix backend && python3 -m pip install -r llm/requirements.txt
+    startCommand: npm start --prefix backend
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PYTHON_BIN
+        value: python3
+      - key: SCRAPER_PATH
+        value: scraping/scraper.py
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 1h
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: WORKER_SECRET
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
+
+  - type: static_site
+    name: twins-through-time-frontend
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    publishDir: dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

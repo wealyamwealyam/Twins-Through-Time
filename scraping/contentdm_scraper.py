@@ -19,13 +19,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from llm.llm import extract_metadata  # noqa: E402
-
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/121.0.0.0 Safari/537.36"
 )
+
+RANK_PREFIX_RE = re.compile(
+    r"^(?:private|pvt\.?|corporal|cpl\.?|sergeant|sgt\.?|lieutenant|lt\.?|captain|capt\.?|"
+    r"major|maj\.?|colonel|col\.?|general|gen\.?|commander|admiral)\s+",
+    flags=re.IGNORECASE,
+)
+
+COMPANY_RE = re.compile(r"\b(?:Company|Co\.?)\s*([A-Z])\b", flags=re.IGNORECASE)
 
 
 class LoggerLike(Protocol):
@@ -141,11 +147,70 @@ def fields_to_map(fields: list[dict[str, Any]] | None) -> dict[str, str]:
     for field in fields:
         if not isinstance(field, dict):
             continue
-        key = str(field.get("key", "")).strip()
+        key = str(field.get("key") or field.get("field") or "").strip()
         value = str(field.get("value", "")).strip()
         if key and value:
             mapped[key] = value
     return mapped
+
+
+def has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        stripped = value.strip()
+        return bool(stripped) and stripped.lower() not in {"null", "none", "unknown", "no value provided", "n/a"}
+    return True
+
+
+def set_if_missing(metadata: dict[str, Any], key: str, value: Any) -> None:
+    if has_value(metadata.get(key)) or not has_value(value):
+        return
+    metadata[key] = value
+
+
+def clean_title_for_name(title: str) -> str:
+    cleaned = re.sub(r"\([^)]*\)", " ", title)
+    cleaned = re.sub(r"\[[^\]]*\]", " ", cleaned)
+    cleaned = re.split(r"\s+(?:or|and)\s+", cleaned, maxsplit=1, flags=re.IGNORECASE)[0]
+    cleaned = cleaned.split(",", 1)[0]
+    cleaned = RANK_PREFIX_RE.sub("", cleaned.strip())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,:;_-")
+    return cleaned
+
+
+def parse_name_from_title(title: str) -> tuple[str | None, str | None, str | None]:
+    cleaned = clean_title_for_name(title)
+    if not cleaned:
+        return None, None, None
+
+    parts = [
+        part.strip(" .,:;_-")
+        for part in cleaned.split()
+        if re.search(r"[A-Za-z]", part)
+    ]
+    if len(parts) < 2:
+        return None, None, None
+
+    first = parts[0]
+    last = parts[-1]
+    middle = " ".join(parts[1:-1]) or None
+    return first, middle, last
+
+
+def first_matching_field(field_map: dict[str, str], patterns: tuple[str, ...]) -> str:
+    for key, value in field_map.items():
+        lowered = key.lower()
+        if any(pattern in lowered for pattern in patterns) and has_value(value):
+            return value
+    return ""
+
+
+def extract_company(text: str) -> str:
+    match = COMPANY_RE.search(text or "")
+    if not match:
+        return ""
+    return f"Company {match.group(1).upper()}"
 
 
 def normalize_iiif_image_uri(image_url: str) -> str:
@@ -164,6 +229,15 @@ def normalize_iiif_image_uri(image_url: str) -> str:
     )
 
 
+def is_bad_contentdm_image_route(image_url: str) -> bool:
+    """
+    Some CONTENTdm APIs return /api/singleitem/image/... as imageUri, but on
+    certain hosts that route serves the app HTML instead of image bytes.
+    """
+    path = urlparse(image_url).path.lower()
+    return "/api/singleitem/image/" in path
+
+
 def build_image_candidates(site_base: str, api_item: dict[str, Any]) -> list[str]:
     candidates: list[str] = []
 
@@ -177,6 +251,8 @@ def build_image_candidates(site_base: str, api_item: dict[str, Any]) -> list[str
             continue
         if key == "imageUri":
             absolute = normalize_iiif_image_uri(absolute)
+        if key == "imageUri" and is_bad_contentdm_image_route(absolute):
+            continue
         if absolute not in candidates:
             candidates.append(absolute)
 
@@ -334,6 +410,11 @@ def scrape_item(site_base: str, collection_alias: str, item_url: str) -> dict[st
     title = field_map.get("title") or f"record_{item_id}"
     description = field_map.get("descri") or field_map.get("subjec") or ""
     text_transcript = str(api_item.get("text", "")).strip()
+    all_fields_text = "\n".join(
+        f"{key}: {value}"
+        for key, value in field_map.items()
+        if has_value(value)
+    )
 
     llm_document = (
         f"Record ID: {item_id}\n"
@@ -344,15 +425,86 @@ def scrape_item(site_base: str, collection_alias: str, item_url: str) -> dict[st
         f"Military/Subject Data: {field_map.get('subjec', '')}\n"
         f"Transcript: {text_transcript}\n"
         f"Publisher: {field_map.get('publis', '')}\n"
+        f"All CONTENTdm Fields:\n{all_fields_text}\n"
     )
 
     return {
         "record_id": item_id,
         "item_url": item_url,
         "title": title,
+        "collection_alias": collection_alias,
+        "_field_map": field_map,
+        "_text_transcript": text_transcript,
         "_image_candidate_groups": image_candidate_groups,
         "_llm_document": llm_document,
     }
+
+
+def image_group_parts(group: Any) -> tuple[str, list[str]]:
+    label = ""
+    candidates: list[str] = []
+
+    if isinstance(group, dict):
+        label = str(group.get("label", "")).strip()
+        raw_candidates = group.get("candidates", [])
+        if isinstance(raw_candidates, list):
+            candidates = [str(item) for item in raw_candidates if isinstance(item, str)]
+    elif isinstance(group, list):
+        candidates = [str(item) for item in group if isinstance(item, str)]
+
+    return label, candidates
+
+
+def resolve_image_side(label: str, group_index: int, total_groups: int) -> str:
+    cleaned = label.strip().lower()
+    if cleaned in ("front", "back"):
+        return cleaned
+
+    # Common CONTENTdm compound-photo pattern: two unlabeled pages are front/back.
+    if total_groups == 2:
+        return "front" if group_index == 1 else "back"
+
+    return cleaned
+
+
+def apply_contentdm_hints_to_metadata(
+    metadata: dict[str, Any],
+    record: dict[str, Any],
+    normalize_metadata_schema: Callable[[Any], dict[str, Any]],
+) -> dict[str, Any]:
+    field_map = record.get("_field_map") if isinstance(record.get("_field_map"), dict) else {}
+    title = str(record.get("title") or field_map.get("title") or "")
+    transcript = str(record.get("_text_transcript") or "").strip()
+
+    first, middle, last = parse_name_from_title(title)
+    set_if_missing(metadata, "First Name", first)
+    set_if_missing(metadata, "Middle Name or Initial", middle)
+    set_if_missing(metadata, "Last Name", last)
+
+    military_unit = (
+        field_map.get("subjec")
+        or first_matching_field(field_map, ("subject", "military", "unit", "regiment"))
+    )
+    set_if_missing(metadata, "Military Unit", military_unit)
+
+    evidence_text = " ".join(
+        str(part)
+        for part in (
+            title,
+            field_map.get("subjec", ""),
+            field_map.get("descri", ""),
+            transcript,
+            " ".join(field_map.values()),
+        )
+        if has_value(part)
+    )
+    set_if_missing(metadata, "Company", extract_company(evidence_text))
+    set_if_missing(metadata, "Transcript", transcript or field_map.get("transc") or field_map.get("descri"))
+    set_if_missing(metadata, "Source", str(record.get("item_url") or ""))
+
+    normalized = normalize_metadata_schema(metadata)
+    normalized["Source"] = str(record.get("item_url") or normalized.get("Source") or "")
+    return normalized
 
 
 def save_record_folder(
@@ -361,22 +513,32 @@ def save_record_folder(
     logger: LoggerLike,
     robots_enforcer: RobotsEnforcer | None = None,
     api_client: Any | None = None,
-) -> None:
+    photo_limit: int | None = None,
+) -> int:
     record_id = str(record.get("record_id") or "unknown")
     title = str(record.get("title") or "record")
 
     logger.info(f"Normalizing metadata with LLM for record {record_id}")
+    from llm.llm import extract_metadata, normalize_metadata_schema
+
     metadata = extract_metadata(
         str(record.get("_llm_document", "")),
         maxTokens=400,
         log_fn=lambda msg: logger.info(f"[llm][{record_id}] {msg}"),
     )
+    metadata = apply_contentdm_hints_to_metadata(metadata, record, normalize_metadata_schema)
 
     metadata["Source"] = str(record.get("item_url") or "")
 
     other = metadata.get("Other") if isinstance(metadata.get("Other"), dict) else {}
     other.setdefault("Record ID", record_id)
     other.setdefault("Source URL", str(record.get("item_url") or ""))
+    field_map = record.get("_field_map") if isinstance(record.get("_field_map"), dict) else {}
+    for key, value in field_map.items():
+        if value:
+            other.setdefault(str(key), str(value))
+    if field_map:
+        other.setdefault("CONTENTdm Fields", field_map)
     metadata["Other"] = other
 
     image_groups = record.get("_image_candidate_groups", [])
@@ -384,48 +546,74 @@ def save_record_folder(
         image_groups = []
 
     if api_client is not None:
-        # API mode: POST the best image URL for each group to the backend
+        # API mode: POST the best image URL for each front/back group to the backend.
         tags: list[str] = []
         if isinstance(metadata.get("Tags"), list):
             tags = [str(t) for t in metadata["Tags"]]
         elif isinstance(metadata.get("Tags"), str) and metadata["Tags"]:
             tags = [t.strip() for t in metadata["Tags"].split(",") if t.strip()]
 
-        # Pick the first (best) candidate from the first image group
-        best_image_url: str | None = None
-        for group in image_groups:
-            if isinstance(group, dict):
-                raw_candidates = group.get("candidates", [])
-                if isinstance(raw_candidates, list) and raw_candidates:
-                    best_image_url = str(raw_candidates[0])
-                    break
-            elif isinstance(group, list) and group:
-                best_image_url = str(group[0])
+        posted_count = 0
+        total_groups = len(image_groups)
+        for group_index, group in enumerate(image_groups, start=1):
+            if photo_limit is not None and posted_count >= photo_limit:
                 break
 
-        if best_image_url:
+            label, candidates = image_group_parts(group)
+            image_side = resolve_image_side(label, group_index, total_groups)
+            if not candidates:
+                continue
+
+            best_image_url = candidates[0]
             if robots_enforcer is not None:
                 robots_enforcer(best_image_url, "image URL")
+
+            full_name = " ".join(
+                str(metadata.get(key) or "").strip()
+                for key in ("First Name", "Middle Name or Initial", "Last Name")
+                if str(metadata.get(key) or "").strip()
+            )
+
+            photo_other = dict(other)
+            photo_other.setdefault("Image Set ID", record_id)
+            photo_other.setdefault("Image Set Title", title)
+            photo_other.setdefault("Image Group", str(group_index))
+            if image_side:
+                photo_other.setdefault("Image Side", image_side)
+
+            photo_metadata = {
+                **metadata,
+                "Other": photo_other,
+            }
+
+            display_name = full_name or title or None
+            if display_name and image_side:
+                display_name = f"{display_name} ({image_side})"
+
             photo_payload: dict[str, Any] = {
                 "imageUrl":    best_image_url,
-                "name":        metadata.get("Name") or metadata.get("Subject") or title or None,
-                "regiment":    metadata.get("Regiment") or None,
+                "name":        display_name,
+                "regiment":    metadata.get("Military Unit") or None,
                 "age":         metadata.get("Age") or None,
-                "dateTaken":   metadata.get("Date") or metadata.get("DateTaken") or None,
-                "location":    metadata.get("Location") or None,
-                "photographer": metadata.get("Photographer") or None,
-                "collection":  metadata.get("Collection") or None,
-                "photoNotes":  json.dumps(other, ensure_ascii=False) if other else None,
+                "dateTaken":   metadata.get("Year Born") or field_map.get("date") or None,
+                "location":    None,
+                "photographer": field_map.get("creato") or None,
+                "collection":  field_map.get("cdmcoll") or record.get("collection_alias") or None,
+                "photoNotes":  json.dumps(photo_metadata, ensure_ascii=False),
                 "tags":        tags,
                 "license":     metadata.get("License") or None,
             }
             ok = api_client.post_photo(photo_payload)
             if ok:
-                logger.info(f"Posted photo to API for record {record_id}: {best_image_url}")
+                posted_count += 1
+                side = f" ({image_side})" if image_side else ""
+                logger.info(f"Posted photo to API for record {record_id}{side}: {best_image_url}")
             else:
                 logger.warn(f"Failed to post photo to API for record {record_id}")
-        else:
+
+        if posted_count == 0:
             logger.warn(f"No image candidate found for record {record_id}")
+        return posted_count
     else:
         # File mode: write images + metadata to disk
         folder_name = f"{record_id}_{safe_name(title, fallback='record')}"
@@ -452,17 +640,13 @@ def save_record_folder(
 
         used_stems: set[str] = set()
         images_saved = 0
+        total_groups = len(image_groups)
         for group_index, group in enumerate(image_groups, start=1):
             label = ""
             candidates: list[str] = []
 
-            if isinstance(group, dict):
-                label = str(group.get("label", "")).strip()
-                raw_candidates = group.get("candidates", [])
-                if isinstance(raw_candidates, list):
-                    candidates = [str(item) for item in raw_candidates if isinstance(item, str)]
-            elif isinstance(group, list):
-                candidates = [str(item) for item in group if isinstance(item, str)]
+            label, candidates = image_group_parts(group)
+            label = resolve_image_side(label, group_index, total_groups)
 
             if not candidates:
                 continue
@@ -498,6 +682,7 @@ def save_record_folder(
         metadata_path = record_folder / "metadata.json"
         metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
         logger.info(f"Saved metadata for record {record_id} -> {metadata_path.name}")
+        return images_saved
 
 
 def run_contentdm_collection(
@@ -520,28 +705,34 @@ def run_contentdm_collection(
             "collection search API URL",
         )
 
-    logger.info(f"Discovering item links for collection '{collection_alias}'")
     item_links = discover_item_links(site_base, collection_alias, limit=limit)
     if not item_links:
-        raise RuntimeError("No item links found.")
+        raise RuntimeError("No item links found in CONTENTdm collection.")
 
     logger.info(f"Found {len(item_links)} item links, processing {len(item_links)}")
-    logger.info("Selection strategy: first N records in collection order (nosort, ascending)")
+    logger.info("Selection strategy: first records from CONTENTdm API natural order")
 
     for idx, link in enumerate(item_links, start=1):
+        if success_count >= limit:
+            break
+
         logger.info(f"({idx}/{len(item_links)}) Scraping {link}")
         try:
             if robots_enforcer is not None:
                 robots_enforcer(link, "item URL")
             record = scrape_item(site_base, collection_alias, link)
-            save_record_folder(
+            saved_count = save_record_folder(
                 record,
                 session_dir=session_dir,
                 logger=logger,
                 robots_enforcer=robots_enforcer,
                 api_client=api_client,
+                photo_limit=limit - success_count if api_client is not None else None,
             )
-            success_count += 1
+            if saved_count > 0:
+                success_count += saved_count
+            else:
+                fail_count += 1
         except Exception as exc:
             fail_count += 1
             logger.error(f"Failed to process {link}: {exc}")

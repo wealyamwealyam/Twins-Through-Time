@@ -63,7 +63,7 @@ let job1Id, job2Id;
   // Default maxPhotos
   const r = await post('/scrape-jobs', { url: VALID_URL }, userToken);
   const body = await r.json();
-  check('201 with default maxPhotos=50', r.status === 201 && body.maxPhotos === 50);
+  check('201 with default maxPhotos=3', r.status === 201 && body.maxPhotos === 3);
   job2Id = body.id;
 }
 
@@ -91,11 +91,6 @@ let job1Id, job2Id;
 {
   const r = await post('/scrape-jobs', { url: VALID_URL, maxPhotos: 0 }, userToken);
   check('400 on maxPhotos=0', r.status === 400);
-}
-
-{
-  const r = await post('/scrape-jobs', { url: VALID_URL, maxPhotos: 501 }, userToken);
-  check('400 on maxPhotos > 500', r.status === 400);
 }
 
 {

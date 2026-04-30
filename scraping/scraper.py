@@ -38,7 +38,6 @@ try:
 except Exception:
     pass
 
-from llm.llm import extract_metadata, NON_CONTENTDM_SYSTEM_PROMPT  # noqa: E402
 from robots_checker import check_url_for_scraping  # noqa: E402
 from contentdm_scraper import (  # noqa: E402
     fetch_text,
@@ -56,6 +55,9 @@ try:
     _REQUESTS_AVAILABLE = True
 except ImportError:
     _REQUESTS_AVAILABLE = False
+
+class JobCancelled(Exception):
+    pass
 
 OUTPUT_ROOT = Path(__file__).resolve().parent / "output"
 
@@ -93,8 +95,12 @@ class BackendApiClient:
                 headers=self.headers,
                 timeout=15,
             )
+            if resp.status_code == 409:
+                raise JobCancelled("Scrape job was cancelled.")
             resp.raise_for_status()
             return True
+        except JobCancelled:
+            raise
         except Exception as exc:
             print(f"[api] PATCH job failed: {exc}")
             return False
@@ -110,8 +116,12 @@ class BackendApiClient:
                 headers=self.headers,
                 timeout=15,
             )
+            if resp.status_code == 409:
+                raise JobCancelled("Scrape job was cancelled.")
             resp.raise_for_status()
             return True
+        except JobCancelled:
+            raise
         except Exception as exc:
             print(f"[api] POST photo failed: {exc}")
             return False
@@ -132,6 +142,12 @@ REJECT_IMAGE_TOKENS = {
     "avatar-default",
     "social",
     "share",
+    "arrow",
+    "banner",
+    "blog",
+    "button",
+    "leftnav",
+    "nav",
 }
 
 # Tokens that hint the image is about people / Civil War content.
@@ -963,6 +979,8 @@ def save_generic_record(
     )
 
     logger.info("Normalizing metadata with LLM")
+    from llm.llm import NON_CONTENTDM_SYSTEM_PROMPT, extract_metadata
+
     metadata = extract_metadata(
         llm_document,
         maxTokens=180,
@@ -996,16 +1014,21 @@ def save_generic_record(
         elif isinstance(metadata.get("Tags"), str) and metadata["Tags"]:
             tags = [t.strip() for t in metadata["Tags"].split(",") if t.strip()]
 
+        full_name = " ".join(
+            str(metadata.get(key) or "").strip()
+            for key in ("First Name", "Middle Name or Initial", "Last Name")
+            if str(metadata.get(key) or "").strip()
+        )
         photo_payload: dict[str, Any] = {
             "imageUrl":    image_url,
-            "name":        metadata.get("Name") or metadata.get("Subject") or None,
-            "regiment":    metadata.get("Regiment") or None,
+            "name":        full_name or None,
+            "regiment":    metadata.get("Military Unit") or None,
             "age":         metadata.get("Age") or None,
-            "dateTaken":   metadata.get("Date") or metadata.get("DateTaken") or None,
-            "location":    metadata.get("Location") or None,
-            "photographer": metadata.get("Photographer") or None,
-            "collection":  metadata.get("Collection") or None,
-            "photoNotes":  json.dumps(other, ensure_ascii=False) if other else None,
+            "dateTaken":   metadata.get("Year Born") or None,
+            "location":    None,
+            "photographer": None,
+            "collection":  None,
+            "photoNotes":  json.dumps(metadata, ensure_ascii=False),
             "tags":        tags,
             "license":     metadata.get("License") or None,
         }
@@ -1209,6 +1232,7 @@ def main() -> None:
         limit = args.limit
         is_contentdm = is_contentdm_url(submitted_url)
         contentdm_config: tuple[str, str, str] | None = None
+        api_client.patch_job("running")
         if is_contentdm:
             try:
                 canonical_url, site_base, collection_alias = parse_collection_url(submitted_url)
@@ -1241,10 +1265,6 @@ def main() -> None:
     fail_count = 0
 
     try:
-        # Signal to the backend that work has started
-        if api_client:
-            api_client.patch_job("running")
-
         if is_contentdm and contentdm_config is not None:
             canonical_url, site_base, collection_alias = contentdm_config
             logger.info("Mode: CONTENTdm")
@@ -1277,6 +1297,8 @@ def main() -> None:
             final_status = "completed" if fail_count == 0 or success_count > 0 else "failed"
             api_client.patch_job(final_status)
 
+    except JobCancelled as exc:
+        logger.warn(str(exc))
     except Exception as exc:
         logger.error(f"Fatal error: {exc}")
         if api_client:
