@@ -6,6 +6,8 @@ import OnboardingSubmitModal from "../components/OnboardingSubmitModal";
 import { apiRequest, getBackendSession } from "../utils/apiClient";
 import { createOnboardingRequest, getOnboardingRequests, submitOnboardingRequest } from "../services/onboardingRequestService";
 
+const DEFAULT_MAX_PHOTOS = 3;
+
 function StatusBadge({ status }) {
   const styles = {
     queued: "bg-yellow-100 text-yellow-800",
@@ -29,7 +31,7 @@ StatusBadge.propTypes = {
 
 export default function Upload() {
   const [url, setUrl] = useState("");
-  const [maxPhotos, setMaxPhotos] = useState(50);
+  const [maxPhotos, setMaxPhotos] = useState(DEFAULT_MAX_PHOTOS);
   const [runs, setRuns] = useState([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -153,8 +155,8 @@ export default function Upload() {
     }
 
     const max = Number(maxPhotos);
-    if (!Number.isInteger(max) || max < 1 || max > 500) {
-      setError("Max photos must be between 1 and 500.");
+    if (!Number.isInteger(max) || max < 1) {
+      setError("Max photos must be a positive whole number.");
       return;
     }
 
@@ -171,7 +173,7 @@ export default function Upload() {
 
       setRuns((prev) => [newRun, ...prev]);
       setUrl("");
-      setMaxPhotos(50);
+      setMaxPhotos(DEFAULT_MAX_PHOTOS);
     } catch (error) {
       setError(error?.message || "Unable to start scrape.");
     } finally {
@@ -411,12 +413,11 @@ async function handleOnboardingSubmit(title, notes) {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                  Max photos <span className="text-gray-400 font-normal">(1-500)</span>
+                  Max photos <span className="text-gray-400 font-normal">(1+)</span>
                 </label>
                 <input
                   type="number"
                   min="1"
-                  max="500"
                   value={maxPhotos}
                   onChange={(e) => setMaxPhotos(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition"
@@ -435,7 +436,7 @@ async function handleOnboardingSubmit(title, notes) {
                   type="button"
                   onClick={() => {
                     setUrl("");
-                    setMaxPhotos(50);
+                    setMaxPhotos(DEFAULT_MAX_PHOTOS);
                     setError("");
                   }}
                   className="text-sm font-medium text-gray-500 hover:text-gray-900 transition"

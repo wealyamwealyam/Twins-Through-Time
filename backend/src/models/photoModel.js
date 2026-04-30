@@ -40,8 +40,43 @@ const toDb = (obj) => ({
   ...(obj.license            !== undefined && { license:             obj.license }),
 });
 
+const parsePhotoNotes = (value) => {
+  if (!value || typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return { Notes: value };
+  }
+};
+
+const buildScrapedMetadata = (row) => {
+  const other = parsePhotoNotes(row.photo_notes);
+  const nameParts = String(row.name || '').trim().split(/\s+/).filter(Boolean);
+  const firstName = nameParts.length > 1 ? nameParts[0] : null;
+  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : (row.name || null);
+
+  return {
+    'First Name': firstName,
+    'Middle Name or Initial': null,
+    'Last Name': lastName,
+    'Military Unit': row.regiment,
+    'Regiment Number': null,
+    'Regiment State': '',
+    Branch: '',
+    Company: '',
+    Age: row.age,
+    'Year Born': null,
+    Transcript: other.Transcript || other.descri || other.Notes || '',
+    Confidence: 0,
+    Source: other['Source URL'] || other.Source || '',
+    Other: other,
+  };
+};
+
 const fromDb = (row) => {
   if (!row) return null;
+  const scrapedMetadata = buildScrapedMetadata(row);
   return {
     id:               row.id,
     scrapeJobId:      row.scrape_job_id,
@@ -63,6 +98,8 @@ const fromDb = (row) => {
     photoNotes:       row.photo_notes,
     tags:             row.tags ?? [],
     license:          row.license,
+    scrapedMetadata,
+    metadataJson:      scrapedMetadata,
     createdAt:        row.created_at,
     updatedAt:        row.updated_at,
   };

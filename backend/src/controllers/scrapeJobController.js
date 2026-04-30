@@ -13,6 +13,8 @@
 
 import { spawn } from 'child_process';
 import { openSync, mkdirSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import { validateScrapeUrl } from '../utils/validators.js';
 import {
@@ -26,12 +28,22 @@ import { createPhoto } from '../models/photoModel.js';
 const errBody = (code, message, details = null) => ({ error: { code, message, details } });
 
 const VALID_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'];
+const DEFAULT_MAX_PHOTOS = Math.max(1, Number(process.env.DEFAULT_MAX_PHOTOS) || 3);
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const activeWorkers = new Map();
+
+const stopWorker = (jobId) => {
+  const child = activeWorkers.get(jobId);
+  if (!child || child.killed) return false;
+  child.kill(process.platform === 'win32' ? undefined : 'SIGTERM');
+  return true;
+};
 
 // ---------------------------------------------------------------------------
 // POST /scrape-jobs  🔒
 // ---------------------------------------------------------------------------
 export const submitScrapeJob = async (req, res) => {
-  const { url, maxPhotos = 50 } = req.body ?? {};
+  const { url, maxPhotos = DEFAULT_MAX_PHOTOS } = req.body ?? {};
 
   // Validate URL via existing SSRF-aware validator
   const urlValidation = validateScrapeUrl(url);
@@ -43,9 +55,42 @@ export const submitScrapeJob = async (req, res) => {
 
   // Validate maxPhotos
   const max = Number(maxPhotos);
-  if (!Number.isInteger(max) || max < 1 || max > 500) {
+  if (!Number.isInteger(max) || max < 1) {
     return res.status(400).json(
-      errBody('VALIDATION_ERROR', 'maxPhotos must be an integer between 1 and 500.')
+      errBody('VALIDATION_ERROR', 'maxPhotos must be a positive integer.')
+    );
+  }
+
+  const activeJobs = await Promise.all(
+    ['queued', 'running'].map((status) =>
+      findScrapeJobs({
+        submittedBy: req.user.id,
+        status,
+        page: 1,
+        limit: 1,
+      })
+    )
+  );
+  const activeJobCount = activeJobs.reduce((sum, result) => sum + (result.total ?? 0), 0);
+  if (activeJobCount > 0) {
+    return res.status(409).json(
+      errBody(
+        'ACTIVE_SCRAPE_EXISTS',
+        'You already have a scrape job queued or running. Cancel it or wait for it to finish before starting another.'
+      )
+    );
+  }
+
+  // Spawn the Python scraper worker in the background.
+  // It will PATCH job status and POST photos back via the internal API.
+  const pythonBin    = process.env.PYTHON_BIN      || (process.platform === 'win32' ? 'python' : 'python3');
+  const scraperPath  = process.env.SCRAPER_PATH    || 'scraping/scraper.py';
+  const apiUrl       = process.env.INTERNAL_API_URL || 'http://localhost:3000';
+  const workerSecret = process.env.WORKER_SECRET   || '';
+
+  if (!workerSecret) {
+    return res.status(500).json(
+      errBody('SERVER_MISCONFIGURED', 'WORKER_SECRET is not set on the server.')
     );
   }
 
@@ -55,19 +100,12 @@ export const submitScrapeJob = async (req, res) => {
     submittedBy: req.user.id,
   });
 
-  // Spawn the Python scraper worker in the background.
-  // It will PATCH job status and POST photos back via the internal API.
-  const projectRoot  = new URL('../../..', import.meta.url).pathname;
-  const pythonBin    = process.env.PYTHON_BIN      || 'python3';
-  const scraperPath  = process.env.SCRAPER_PATH    || 'scraping/scraper.py';
-  const apiUrl       = process.env.INTERNAL_API_URL || 'http://localhost:3000';
-  const workerSecret = process.env.WORKER_SECRET   || '';
-
   try {
     // Log worker stdout/stderr to scraping/logs/<job-id>.log for debugging
-    const logsDir = `${projectRoot}/scraping/logs`;
+    const logsDir = path.join(projectRoot, 'scraping', 'logs');
     mkdirSync(logsDir, { recursive: true });
-    const logFd = openSync(`${logsDir}/${job.id}.log`, 'a');
+    const logPath = path.join(logsDir, `${job.id}.log`);
+    const logFd = openSync(logPath, 'a');
 
     const child = spawn(
       pythonBin,
@@ -86,13 +124,48 @@ export const submitScrapeJob = async (req, res) => {
         env:      { ...process.env },
       },
     );
+    activeWorkers.set(job.id, child);
     child.on('error', (err) => {
       console.error(`[worker] spawn error for job ${job.id}:`, err.message);
+      updateScrapeJob(job.id, {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        errorMessage: `Failed to start scraper worker: ${err.message}`,
+      }).catch((updateErr) => {
+        console.error(`[worker] failed to mark job ${job.id} as failed:`, updateErr.message);
+      });
+    });
+    child.on('exit', (code, signal) => {
+      activeWorkers.delete(job.id);
+      if (code === 0) return;
+
+      findScrapeJobById(job.id)
+        .then((latestJob) => {
+          if (!latestJob || !['queued', 'running'].includes(latestJob.status)) return null;
+
+          const reason = signal
+            ? `Scraper worker exited from signal ${signal}.`
+            : `Scraper worker exited with code ${code}.`;
+
+          return updateScrapeJob(job.id, {
+            status: 'failed',
+            completedAt: new Date().toISOString(),
+            errorMessage: `${reason} See ${logPath} for details.`,
+          });
+        })
+        .catch((err) => {
+          console.error(`[worker] failed to process worker exit for job ${job.id}:`, err.message);
+        });
     });
     child.unref();
     console.log(`[worker] spawned pid=${child.pid} for job ${job.id}`);
   } catch (err) {
     console.error(`[worker] failed to spawn worker for job ${job.id}:`, err.message);
+    await updateScrapeJob(job.id, {
+      status: 'failed',
+      completedAt: new Date().toISOString(),
+      errorMessage: `Failed to start scraper worker: ${err.message}`,
+    });
   }
 
   // processScrapeJob (JS fallback) is intentionally NOT called here.
@@ -166,7 +239,12 @@ export const cancelScrapeJob = async (req, res) => {
     );
   }
 
-  await updateScrapeJob(job.id, { status: 'cancelled', completedAt: new Date().toISOString() });
+  const stoppedWorker = stopWorker(job.id);
+  await updateScrapeJob(job.id, {
+    status: 'cancelled',
+    completedAt: new Date().toISOString(),
+    errorMessage: stoppedWorker ? 'Scrape cancelled by user. Worker process was stopped.' : 'Scrape cancelled by user.',
+  });
   return res.status(204).send();
 };
 
@@ -179,6 +257,9 @@ export const updateJobStatus = async (req, res) => {
   if (!job) {
     return res.status(404).json(errBody('NOT_FOUND', 'Scrape job not found.'));
   }
+  if (job.status === 'cancelled') {
+    return res.status(409).json(errBody('JOB_CANCELLED', 'Scrape job has been cancelled.'));
+  }
 
   const { status, errorMessage } = req.body ?? {};
 
@@ -189,6 +270,9 @@ export const updateJobStatus = async (req, res) => {
   }
 
   const updates = { status };
+  if (status === 'running') {
+    updates.startedAt = new Date().toISOString();
+  }
   if (status === 'completed' || status === 'failed') {
     updates.completedAt = new Date().toISOString();
   }
@@ -208,6 +292,9 @@ export const ingestPhoto = async (req, res) => {
   const job = await findScrapeJobById(req.params.id);
   if (!job) {
     return res.status(404).json(errBody('NOT_FOUND', 'Scrape job not found.'));
+  }
+  if (job.status === 'cancelled') {
+    return res.status(409).json(errBody('JOB_CANCELLED', 'Scrape job has been cancelled.'));
   }
 
   const {

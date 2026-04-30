@@ -5,29 +5,47 @@ from typing import Any, Callable
 
 import torch
 import transformers
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
 # Load from llm/.env first, then fall back to project root .env
 _this_dir = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(_this_dir, ".env"))
-load_dotenv()  # fallback to cwd .env
+if load_dotenv is not None:
+    load_dotenv(os.path.join(_this_dir, ".env"))
+    load_dotenv()  # fallback to cwd .env
+else:
+    # Keep the scraper usable on machines that have transformers/torch installed
+    # but not python-dotenv. This supports the simple KEY=value lines used here.
+    for env_path in (os.path.join(_this_dir, ".env"), os.path.join(os.getcwd(), ".env")):
+        if not os.path.exists(env_path):
+            continue
+        with open(env_path, "r", encoding="utf-8") as env_file:
+            for line in env_file:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 # get the current user's hugging face token from the .env file
 HF_TOKEN = os.getenv("HF_TOKEN")
 if HF_TOKEN is None:
     raise RuntimeError("HF_TOKEN not found. You need to create a .env file with your HF_TOKEN in it.")
 
-# Primary model: Llama 3.2 (gated — requires Meta license acceptance)
-# Fallback model: SmolLM2-1.7B-Instruct (ungated, same instruction format)
-_PRIMARY_MODEL   = "meta-llama/Llama-3.2-3B-Instruct"
-_FALLBACK_MODEL  = "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+# Default to a small ungated model so local CPU scraping can finish.
+# Set LLM_MODEL_ID in llm/.env if you want a larger Hugging Face model.
+_PRIMARY_MODEL   = "HuggingFaceTB/SmolLM2-135M-Instruct"
+_FALLBACK_MODEL  = "HuggingFaceTB/SmolLM2-135M-Instruct"
 MODEL_ID = os.getenv("LLM_MODEL_ID", _PRIMARY_MODEL)
+pipeline = None
 
 def _load_pipeline():
     """Try primary model; fall back to ungated model if gated access is denied."""
     for model in [MODEL_ID, _FALLBACK_MODEL] if MODEL_ID == _PRIMARY_MODEL else [MODEL_ID]:
         try:
-            print(f"[llm] Loading model: {model}")
+            print(f"[llm] Loading model: {model}", flush=True)
             p = transformers.pipeline(
                 "text-generation",
                 model=model,
@@ -45,18 +63,22 @@ def _load_pipeline():
                 elif unk_id is not None:
                     tokenizer.pad_token_id = unk_id
 
-            print(f"[llm] Loaded: {model}")
+            print(f"[llm] Loaded: {model}", flush=True)
             return p, model
         except Exception as e:
             if "gated" in str(e).lower() or "403" in str(e) or "401" in str(e):
-                print(f"[llm] {model} is gated / unauthorised; trying fallback.")
+                print(f"[llm] {model} is gated / unauthorised; trying fallback.", flush=True)
                 if model == _FALLBACK_MODEL:
                     raise
             else:
                 raise
     raise RuntimeError("Could not load any LLM model.")
 
-pipeline, MODEL_ID = _load_pipeline()
+def _get_pipeline():
+    global pipeline, MODEL_ID
+    if pipeline is None:
+        pipeline, MODEL_ID = _load_pipeline()
+    return pipeline
 
 LogFn = Callable[[str], None]
 
@@ -122,13 +144,14 @@ def run_llm(messages, maxTokens=256, log_fn: LogFn | None = None):
     if log_fn:
         log_fn(f"Running LLM inference (maxTokens={maxTokens})")
 
-    outputs = pipeline(
+    text_pipeline = _get_pipeline()
+    outputs = text_pipeline(
         messages,
         max_new_tokens=maxTokens,
         do_sample=False,
         temperature=None,
         top_p=None,
-        pad_token_id=getattr(getattr(pipeline, "tokenizer", None), "pad_token_id", None),
+        pad_token_id=getattr(getattr(text_pipeline, "tokenizer", None), "pad_token_id", None),
     )
     return outputs[0]["generated_text"][-1]["content"]
 

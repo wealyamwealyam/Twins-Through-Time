@@ -48,12 +48,12 @@ const fromDb = (row) => {
 // CRUD helpers
 // ---------------------------------------------------------------------------
 
-export const createScrapeJob = async ({ url, maxPhotos = 50, submittedBy }) => {
+export const createScrapeJob = async ({ url, maxPhotos = 3, submittedBy }) => {
   const { data, error } = await supabase
     .from('scrape_jobs')
     .insert([toDb({
       url,
-      maxPhotos:   Math.min(Number(maxPhotos) || 50, 500),
+      maxPhotos:   Math.max(1, Number(maxPhotos) || 3),
       status:      'queued',
       submittedBy,
       photoCount:  0,
