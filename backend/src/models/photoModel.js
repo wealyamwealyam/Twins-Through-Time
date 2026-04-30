@@ -50,27 +50,90 @@ const parsePhotoNotes = (value) => {
   }
 };
 
+const EMPTY_SCRAPED_METADATA = {
+  'First Name': null,
+  'Middle Name or Initial': null,
+  'Last Name': null,
+  'Military Unit': null,
+  'Regiment Number': null,
+  'Regiment State': '',
+  Branch: '',
+  Company: '',
+  Age: null,
+  'Year Born': null,
+  Transcript: '',
+  Confidence: 0,
+  Source: '',
+  Other: {},
+};
+
+const STRUCTURED_METADATA_KEYS = Object.keys(EMPTY_SCRAPED_METADATA);
+
+const hasStructuredMetadata = (value) =>
+  value &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  STRUCTURED_METADATA_KEYS.some((key) => Object.prototype.hasOwnProperty.call(value, key));
+
+const hasValue = (value) => {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed !== '' && trimmed.toLowerCase() !== 'null';
+  }
+  return true;
+};
+
+const valueOrFallback = (value, fallback) => (hasValue(value) ? value : fallback);
+
+const splitName = (name) => {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) {
+    return { firstName: null, middleName: null, lastName: null };
+  }
+  if (parts.length === 1) {
+    return { firstName: null, middleName: null, lastName: parts[0] };
+  }
+  return {
+    firstName: parts[0],
+    middleName: parts.length > 2 ? parts.slice(1, -1).join(' ') : null,
+    lastName: parts[parts.length - 1],
+  };
+};
+
 const buildScrapedMetadata = (row) => {
-  const other = parsePhotoNotes(row.photo_notes);
-  const nameParts = String(row.name || '').trim().split(/\s+/).filter(Boolean);
-  const firstName = nameParts.length > 1 ? nameParts[0] : null;
-  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : (row.name || null);
+  const parsedNotes = parsePhotoNotes(row.photo_notes);
+  const { firstName, middleName, lastName } = splitName(row.name);
+
+  if (hasStructuredMetadata(parsedNotes)) {
+    const other =
+      parsedNotes.Other && typeof parsedNotes.Other === 'object' && !Array.isArray(parsedNotes.Other)
+        ? parsedNotes.Other
+        : {};
+
+    return {
+      ...EMPTY_SCRAPED_METADATA,
+      ...parsedNotes,
+      'First Name': valueOrFallback(parsedNotes['First Name'], firstName),
+      'Middle Name or Initial': valueOrFallback(parsedNotes['Middle Name or Initial'], middleName),
+      'Last Name': valueOrFallback(parsedNotes['Last Name'], lastName),
+      'Military Unit': valueOrFallback(parsedNotes['Military Unit'], row.regiment),
+      Age: valueOrFallback(parsedNotes.Age, row.age),
+      Source: valueOrFallback(parsedNotes.Source, other['Source URL'] || other.Source || ''),
+      Other: other,
+    };
+  }
 
   return {
+    ...EMPTY_SCRAPED_METADATA,
     'First Name': firstName,
-    'Middle Name or Initial': null,
+    'Middle Name or Initial': middleName,
     'Last Name': lastName,
     'Military Unit': row.regiment,
-    'Regiment Number': null,
-    'Regiment State': '',
-    Branch: '',
-    Company: '',
     Age: row.age,
-    'Year Born': null,
-    Transcript: other.Transcript || other.descri || other.Notes || '',
-    Confidence: 0,
-    Source: other['Source URL'] || other.Source || '',
-    Other: other,
+    Transcript: parsedNotes.Transcript || parsedNotes.descri || parsedNotes.Notes || '',
+    Source: parsedNotes['Source URL'] || parsedNotes.Source || '',
+    Other: parsedNotes,
   };
 };
 

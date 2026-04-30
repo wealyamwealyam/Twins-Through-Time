@@ -1028,7 +1028,7 @@ def save_generic_record(
             "location":    None,
             "photographer": None,
             "collection":  None,
-            "photoNotes":  json.dumps(other, ensure_ascii=False) if other else None,
+            "photoNotes":  json.dumps(metadata, ensure_ascii=False),
             "tags":        tags,
             "license":     metadata.get("License") or None,
         }

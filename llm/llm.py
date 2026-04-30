@@ -81,6 +81,7 @@ def _get_pipeline():
     return pipeline
 
 LogFn = Callable[[str], None]
+NULL_LIKE_STRINGS = {"null", "none", "unknown", "no value provided", "n/a"}
 
 
 STATE_NAME_TO_ABBREV = {
@@ -283,6 +284,8 @@ def _to_string(value: Any, default: str = "") -> str:
     if value is None:
         return default
     text = str(value).strip()
+    if text.lower() in NULL_LIKE_STRINGS:
+        return default
     return text if text else default
 
 

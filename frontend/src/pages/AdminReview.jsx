@@ -19,6 +19,7 @@ function toReviewImage(photo) {
     fileName: photo.imageUrl?.split("/").pop() || photo.id,
     name: photo.name || "",
     photoNotes: photo.photoNotes || "",
+    scrapedMetadata: photo.scrapedMetadata || photo.metadataJson || {},
   };
 }
 
@@ -283,20 +284,17 @@ export default function AdminReview() {
   }
 
 async function savePhotoMetadata(annotation) {
+  const metadata = annotation.metadata || {};
   const updated = await apiRequest(`/photos/${annotation.id}`, {
     method: "PATCH",
     body: JSON.stringify({
-      name: annotation.metadata.name || null,
-      age: annotation.metadata.ageRange === "Unknown" ? null : annotation.metadata.ageRange,
-      regiment: annotation.metadata.affiliation === "Unknown" ? null : annotation.metadata.affiliation,
-      photoNotes: annotation.metadata.notes || null,
-      tags: [
-        annotation.metadata.race,
-        annotation.metadata.sex,
-        ...Object.entries(annotation.metadata.accessories)
-          .filter(([, enabled]) => enabled)
-          .map(([key]) => key),
-      ].filter((tag) => tag && tag !== "Unknown"),
+      name: [metadata["First Name"], metadata["Middle Name or Initial"], metadata["Last Name"]]
+        .filter(Boolean)
+        .join(" ") || null,
+      age: metadata.Age || null,
+      regiment: metadata["Military Unit"] || null,
+      dateTaken: metadata["Year Born"] || null,
+      photoNotes: JSON.stringify(metadata),
     }),
   });
 

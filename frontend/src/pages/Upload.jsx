@@ -277,7 +277,7 @@ export default function Upload() {
         name: [metadata["First Name"], metadata["Middle Name or Initial"], metadata["Last Name"]]
           .filter(Boolean)
           .join(" ") || null,
-        photoNotes: metadata["Transcript"] || null,
+        photoNotes: JSON.stringify(metadata),
       }),
     });
   }
