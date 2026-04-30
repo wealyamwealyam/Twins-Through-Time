@@ -18,6 +18,140 @@ import {
   updatePhoto,
 } from '../models/photoModel.js';
 
+const ALLOWED_METADATA_KEYS = new Set([
+  'First Name',
+  'Middle Name or Initial',
+  'Last Name',
+  'Military Unit',
+  'Regiment Number',
+  'Regiment State',
+  'Branch',
+  'Company',
+  'Age',
+  'Year Born',
+  'Transcript',
+  'Confidence',
+  'Source',
+  'Other',
+]);
+
+const isPlainObject = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const validateMetadata = (metadata) => {
+  if (!isPlainObject(metadata)) {
+    return '`metadata` must be an object.';
+  }
+
+  const unknownKeys = Object.keys(metadata).filter(
+    (key) => !ALLOWED_METADATA_KEYS.has(key)
+  );
+
+  if (unknownKeys.length > 0) {
+    return `Unknown metadata keys: ${unknownKeys.join(', ')}.`;
+  }
+
+  if (
+    metadata['First Name'] !== undefined &&
+    typeof metadata['First Name'] !== 'string'
+  ) {
+    return '`metadata.First Name` must be a string.';
+  }
+
+  if (
+    metadata['Middle Name or Initial'] !== undefined &&
+    typeof metadata['Middle Name or Initial'] !== 'string'
+  ) {
+    return '`metadata.Middle Name or Initial` must be a string.';
+  }
+
+  if (
+    metadata['Last Name'] !== undefined &&
+    typeof metadata['Last Name'] !== 'string'
+  ) {
+    return '`metadata.Last Name` must be a string.';
+  }
+
+  if (
+    metadata['Military Unit'] !== undefined &&
+    typeof metadata['Military Unit'] !== 'string'
+  ) {
+    return '`metadata.Military Unit` must be a string.';
+  }
+
+  if (
+    metadata['Regiment Number'] !== undefined &&
+    typeof metadata['Regiment Number'] !== 'string'
+  ) {
+    return '`metadata.Regiment Number` must be a string.';
+  }
+
+  if (
+    metadata['Regiment State'] !== undefined &&
+    typeof metadata['Regiment State'] !== 'string'
+  ) {
+    return '`metadata.Regiment State` must be a string.';
+  }
+
+  if (
+    metadata['Branch'] !== undefined &&
+    typeof metadata['Branch'] !== 'string'
+  ) {
+    return '`metadata.Branch` must be a string.';
+  }
+
+  if (
+    metadata['Company'] !== undefined &&
+    typeof metadata['Company'] !== 'string'
+  ) {
+    return '`metadata.Company` must be a string.';
+  }
+
+  if (
+    metadata['Age'] !== undefined &&
+    typeof metadata['Age'] !== 'number'
+  ) {
+    return '`metadata.Age` must be a number.';
+  }
+
+  if (
+    metadata['Year Born'] !== undefined &&
+    typeof metadata['Year Born'] !== 'number'
+  ) {
+    return '`metadata.Year Born` must be a number.';
+  }
+
+  if (
+    metadata['Transcript'] !== undefined &&
+    typeof metadata['Transcript'] !== 'string'
+  ) {
+    return '`metadata.Transcript` must be a string.';
+  }
+
+  if (
+    metadata['Confidence'] !== undefined &&
+    typeof metadata['Confidence'] !== 'number'
+  ) {
+    return '`metadata.Confidence` must be a number.';
+  }
+
+  if (
+    metadata['Source'] !== undefined &&
+    typeof metadata['Source'] !== 'string'
+  ) {
+    return '`metadata.Source` must be a string.';
+  }
+
+  if (
+    metadata['Other'] !== undefined &&
+    !isPlainObject(metadata['Other'])
+  ) {
+    return '`metadata.Other` must be an object.';
+  }
+
+  return null;
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -26,7 +160,7 @@ const VALID_STATUSES   = ['pending_review', 'reviewed', 'rejected'];
 /** Metadata fields the caller is allowed to set via PATCH /photos/:id */
 const EDITABLE_META_FIELDS = [
   'name', 'regiment', 'age', 'dateTaken', 'location',
-  'photographer', 'collection', 'photoNotes', 'tags', 'license',
+  'photographer', 'collection', 'photoNotes', 'tags', 'license', 'metadata',
 ];
 
 // ---------------------------------------------------------------------------
@@ -131,6 +265,15 @@ export const updatePhotoMetadata = async (req, res) => {
       return res.status(400).json(errBody('VALIDATION_ERROR', 'Each tag must be a string.'));
     }
   }
+
+  if (updates.metadata !== undefined) {
+  const metadataError = validateMetadata(updates.metadata);
+  if (metadataError) {
+    return res.status(400).json(
+      errBody('VALIDATION_ERROR', metadataError)
+    );
+  }
+}
 
   // Record manual edit
   updates.isAutoExtracted   = false;

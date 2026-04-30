@@ -85,6 +85,24 @@ create table if not exists photos (
   updated_at         timestamptz not null default now()
 );
 
+alter table photos
+add column if not exists metadata jsonb not null default '{
+  "First Name": "",
+  "Middle Name or Initial": "",
+  "Last Name": "",
+  "Military Unit": "",
+  "Regiment Number": "",
+  "Regiment State": "",
+  "Branch": "",
+  "Company": "",
+  "Age": 0,
+  "Year Born": 0,
+  "Transcript": "",
+  "Confidence": 0.0,
+  "Source": "",
+  "Other": {}
+}'::jsonb;
+
 -- ─── Onboarding requests ─────────────────────────────────────────────────────
 create table if not exists onboarding_requests (
   id                       uuid        primary key default gen_random_uuid(),

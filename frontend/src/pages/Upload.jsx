@@ -269,8 +269,8 @@ export default function Upload() {
     await apiRequest(`/photos/${annotation.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        metadataJson: metadata,
-  
+        metadata,
+
         // optional compatibility fields if your backend/UI still uses them elsewhere
         name: [metadata["First Name"], metadata["Middle Name or Initial"], metadata["Last Name"]]
           .filter(Boolean)

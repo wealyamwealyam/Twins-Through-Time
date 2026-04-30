@@ -317,13 +317,21 @@ export default function MetadataReviewPopup({
                       className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
                     />
                   ) : (
-                    <input
-                      type={field.type}
-                      step={field.step}
-                      value={current.metadata[field.key] ?? ""}
-                      onChange={(e) => updateField(field.key, e.target.value)}
-                      className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
-                    />
+                      <input
+                        type={field.type}
+                        step={field.step}
+                        value={current.metadata[field.key] ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const value =
+                            field.type === "number"
+                              ? (raw === "" ? "" : Number(raw))
+                              : raw;
+
+                          updateField(field.key, value);
+                        }}
+                        className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
+                      />
                   )}
                 </div>
               ))}

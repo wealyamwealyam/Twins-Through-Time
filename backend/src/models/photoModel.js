@@ -14,6 +14,41 @@
 
 import { supabase } from '../config/supabase.js';
 
+const DEFAULT_METADATA = Object.freeze({
+  "First Name": "",
+  "Middle Name or Initial": "",
+  "Last Name": "",
+  "Military Unit": "",
+  "Regiment Number": "",
+  "Regiment State": "",
+  "Branch": "",
+  "Company": "",
+  "Age": 0,
+  "Year Born": 0,
+  "Transcript": "",
+  "Confidence": 0.0,
+  "Source": "",
+  "Other": {},
+});
+
+const cloneDefaultMetadata = () =>
+  JSON.parse(JSON.stringify(DEFAULT_METADATA));
+
+const isPlainObject = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const normalizeMetadata = (value) => {
+  const base = cloneDefaultMetadata();
+
+  if (!isPlainObject(value)) return base;
+
+  return {
+    ...base,
+    ...value,
+    Other: isPlainObject(value.Other) ? value.Other : {},
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Column mapping helpers
 // ---------------------------------------------------------------------------
@@ -38,6 +73,7 @@ const toDb = (obj) => ({
   ...(obj.photoNotes         !== undefined && { photo_notes:         obj.photoNotes }),
   ...(obj.tags               !== undefined && { tags:                obj.tags }),
   ...(obj.license            !== undefined && { license:             obj.license }),
+  ...(obj.metadata !== undefined && { metadata: normalizeMetadata(obj.metadata) }),
 });
 
 const fromDb = (row) => {
@@ -65,6 +101,7 @@ const fromDb = (row) => {
     license:          row.license,
     createdAt:        row.created_at,
     updatedAt:        row.updated_at,
+    metadata:         normalizeMetadata(row.metadata),
   };
 };
 
@@ -88,6 +125,7 @@ export const createPhoto = async ({
   tags         = [],
   license      = null,
   isAutoExtracted = true,
+  metadata = undefined,
 }) => {
   const { data, error } = await supabase
     .from('photos')
@@ -98,6 +136,7 @@ export const createPhoto = async ({
       isAutoExtracted, metadataEditedBy: null, metadataEditedAt: null,
       name, regiment, age, dateTaken, location, photographer,
       collection, photoNotes, tags: Array.isArray(tags) ? tags : [], license,
+      metadata: metadata === undefined ? cloneDefaultMetadata() : normalizeMetadata(metadata),
     })])
     .select()
     .single();
