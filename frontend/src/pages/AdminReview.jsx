@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import PropTypes from "prop-types";
 
 import AdminSectionNav from "../components/AdminSectionNav";
 import { apiRequest } from "../utils/apiClient";
@@ -48,6 +49,10 @@ function StatusBadge({ status }) {
     </span>
   );
 }
+
+StatusBadge.propTypes = {
+  status: PropTypes.string.isRequired,
+};
 
 function ImageModal({ request, onClose, onEdit }) {
   if (!request) return null;
@@ -125,6 +130,23 @@ function ImageModal({ request, onClose, onEdit }) {
   );
 }
 
+ImageModal.propTypes = {
+  request: PropTypes.shape({
+    onboardingRequestTitle: PropTypes.string,
+    photos: PropTypes.arrayOf(
+      PropTypes.shape({
+        id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+        imageUrl: PropTypes.string,
+        name: PropTypes.string,
+        status: PropTypes.string,
+        photoNotes: PropTypes.string,
+      })
+    ),
+  }),
+  onClose: PropTypes.func.isRequired,
+  onEdit: PropTypes.func.isRequired,
+};
+
 export default function AdminReview() {
   const [requests, setRequests] = useState([]);
   const [admins, setAdmins] = useState([]);
@@ -187,12 +209,12 @@ export default function AdminReview() {
     };
   }, []);
 
-  function getUserLabel(id) {
+  const getUserLabel = useCallback((id) => {
     if (!id) return "Unassigned";
     const user = usersById[id];
     if (!user) return id;
     return user.username || user.email || id;
-  }
+  }, [usersById]);
 
   const filteredRequests = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -211,7 +233,7 @@ export default function AdminReview() {
 
         return matchesStatus && matchesSearch;
       });
-  }, [requests, statusFilter, search, usersById]);
+  }, [requests, statusFilter, search, getUserLabel]);
 
   function updateLocalRequest(id, updates) {
     setRequests((current) =>

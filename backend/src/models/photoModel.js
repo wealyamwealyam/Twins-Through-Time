@@ -144,7 +144,7 @@ const fromDb = (row) => {
     id:               row.id,
     scrapeJobId:      row.scrape_job_id,
     submittedBy:      row.submitted_by,
-    imageUrl:         row.image_url,
+    imageUrl:         toDisplayImageUrl(row.image_url),
     status:           row.status,
     isDuplicate:      row.is_duplicate,
     duplicateOfId:    row.duplicate_of_id,
@@ -166,6 +166,26 @@ const fromDb = (row) => {
     createdAt:        row.created_at,
     updatedAt:        row.updated_at,
   };
+};
+
+const toDisplayImageUrl = (value) => {
+  if (!value || typeof value !== 'string') return value;
+
+  try {
+    const url = new URL(value);
+    const match = url.pathname.match(
+      /\/digital\/api\/singleitem\/image\/([^/]+)\/([^/]+)\/default\.jpg$/i
+    );
+    if (!match) return value;
+
+    const [, collectionAlias, itemId] = match;
+    url.pathname = `/digital/api/singleitem/collection/${collectionAlias}/id/${itemId}/thumbnail`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return value;
+  }
 };
 
 const normalizeImageUrl = (value) => {

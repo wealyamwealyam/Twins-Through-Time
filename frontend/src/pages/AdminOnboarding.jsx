@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import PropTypes from "prop-types";
 
 import AdminSectionNav from "../components/AdminSectionNav";
 
@@ -354,6 +355,12 @@ function SummaryCard({ label, value, note }) {
   );
 }
 
+SummaryCard.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.number.isRequired,
+  note: PropTypes.string.isRequired,
+};
+
 function InfoTile({ label, value }) {
   return (
     <div className="rounded-xl bg-gray-50 px-4 py-3">
@@ -364,6 +371,11 @@ function InfoTile({ label, value }) {
     </div>
   );
 }
+
+InfoTile.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+};
 
 function StatusBadge({ status }) {
   const styles = {
@@ -379,6 +391,10 @@ function StatusBadge({ status }) {
     </span>
   );
 }
+
+StatusBadge.propTypes = {
+  status: PropTypes.oneOf(["needs_revision", "ready", "sent", "onboarded"]).isRequired,
+};
 
 function getRecommendedAction(batch) {
   if (batch.onboardingStatus === "needs_revision") {

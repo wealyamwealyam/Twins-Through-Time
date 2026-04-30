@@ -229,6 +229,15 @@ def normalize_iiif_image_uri(image_url: str) -> str:
     )
 
 
+def is_bad_contentdm_image_route(image_url: str) -> bool:
+    """
+    Some CONTENTdm APIs return /api/singleitem/image/... as imageUri, but on
+    certain hosts that route serves the app HTML instead of image bytes.
+    """
+    path = urlparse(image_url).path.lower()
+    return "/api/singleitem/image/" in path
+
+
 def build_image_candidates(site_base: str, api_item: dict[str, Any]) -> list[str]:
     candidates: list[str] = []
 
@@ -242,6 +251,8 @@ def build_image_candidates(site_base: str, api_item: dict[str, Any]) -> list[str
             continue
         if key == "imageUri":
             absolute = normalize_iiif_image_uri(absolute)
+        if key == "imageUri" and is_bad_contentdm_image_route(absolute):
+            continue
         if absolute not in candidates:
             candidates.append(absolute)
 

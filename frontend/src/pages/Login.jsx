@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
+import PropTypes from "prop-types";
 import { apiRequest, saveBackendSession } from "../utils/apiClient";
 
 export default function Login() {
@@ -134,6 +135,14 @@ function Field({ label, value, onChange, placeholder, type = "text" }) {
   );
 }
 
+Field.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  placeholder: PropTypes.string,
+  type: PropTypes.string,
+};
+
 function PasswordField({ label, value, onChange, placeholder, visible, onToggle }) {
   return (
     <div>
@@ -157,3 +166,12 @@ function PasswordField({ label, value, onChange, placeholder, visible, onToggle 
     </div>
   );
 }
+
+PasswordField.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  placeholder: PropTypes.string,
+  visible: PropTypes.bool.isRequired,
+  onToggle: PropTypes.func.isRequired,
+};

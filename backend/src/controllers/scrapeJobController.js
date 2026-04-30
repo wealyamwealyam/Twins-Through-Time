@@ -23,7 +23,7 @@ import {
   findScrapeJobs,
   updateScrapeJob,
 } from '../models/scrapeJobModel.js';
-import { createPhoto, findPhotoByImageUrl } from '../models/photoModel.js';
+import { createPhoto } from '../models/photoModel.js';
 
 const errBody = (code, message, details = null) => ({ error: { code, message, details } });
 
@@ -313,19 +313,6 @@ export const ingestPhoto = async (req, res) => {
 
   if (!imageUrl) {
     return res.status(400).json(errBody('VALIDATION_ERROR', 'imageUrl is required.'));
-  }
-
-  const duplicate = await findPhotoByImageUrl({
-    submittedBy: job.submittedBy,
-    imageUrl,
-  });
-
-  if (duplicate) {
-    return res.status(200).json({
-      ...duplicate,
-      skippedDuplicate: true,
-      duplicateOfId: duplicate.id,
-    });
   }
 
   const photo = await createPhoto({

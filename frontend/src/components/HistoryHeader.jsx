@@ -1,7 +1,8 @@
+import PropTypes from "prop-types";
+
 export default function HistoryHeader({
     title = "Historical Records",
     subtitle = "Browse and explore previously analyzed photos",
-    onUpload,
     onSearchChange,
   }) {
     return (
@@ -39,3 +40,9 @@ export default function HistoryHeader({
       </div>
     );
   }
+
+HistoryHeader.propTypes = {
+  title: PropTypes.string,
+  subtitle: PropTypes.string,
+  onSearchChange: PropTypes.func,
+};

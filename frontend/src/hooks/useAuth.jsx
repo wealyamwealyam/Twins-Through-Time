@@ -19,6 +19,7 @@
  */
 
 import { createContext, useContext, useEffect, useState } from "react";
+import PropTypes from "prop-types";
 import { getMe }              from "../services/accountService.js";
 import { login  as apiLogin,
          logout as apiLogout,
@@ -77,12 +78,17 @@ export function AuthProvider({ children }) {
   );
 }
 
+AuthProvider.propTypes = {
+  children: PropTypes.node.isRequired,
+};
+
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
 /**
  * useAuth() – consume the auth context from any component.
  * Must be used inside <AuthProvider>.
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
