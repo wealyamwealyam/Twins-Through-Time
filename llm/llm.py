@@ -6,6 +6,10 @@ from typing import Any, Callable
 import torch
 import transformers
 try:
+    from groq import Groq
+except ImportError:
+    Groq = None
+try:
     from dotenv import load_dotenv
 except ImportError:
     load_dotenv = None
@@ -29,10 +33,13 @@ else:
                 key, value = line.split("=", 1)
                 os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
+# Hosted LLM path. When this is set, the scraper avoids local CPU inference.
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+groq_client = None
+
 # get the current user's hugging face token from the .env file
 HF_TOKEN = os.getenv("HF_TOKEN")
-if HF_TOKEN is None:
-    raise RuntimeError("HF_TOKEN not found. You need to create a .env file with your HF_TOKEN in it.")
 
 # Default to a small ungated model so local CPU scraping can finish.
 # Set LLM_MODEL_ID in llm/.env if you want a larger Hugging Face model.
@@ -43,6 +50,12 @@ pipeline = None
 
 def _load_pipeline():
     """Try primary model; fall back to ungated model if gated access is denied."""
+    if HF_TOKEN is None:
+        raise RuntimeError(
+            "HF_TOKEN not found. Set GROQ_API_KEY for hosted inference, "
+            "or set HF_TOKEN to use the local Hugging Face fallback."
+        )
+
     for model in [MODEL_ID, _FALLBACK_MODEL] if MODEL_ID == _PRIMARY_MODEL else [MODEL_ID]:
         try:
             print(f"[llm] Loading model: {model}", flush=True)
@@ -79,6 +92,16 @@ def _get_pipeline():
     if pipeline is None:
         pipeline, MODEL_ID = _load_pipeline()
     return pipeline
+
+def _get_groq_client():
+    global groq_client
+    if not GROQ_API_KEY:
+        return None
+    if Groq is None:
+        raise RuntimeError("GROQ_API_KEY is set, but the Python 'groq' package is not installed. Run: pip install groq")
+    if groq_client is None:
+        groq_client = Groq(api_key=GROQ_API_KEY)
+    return groq_client
 
 LogFn = Callable[[str], None]
 NULL_LIKE_STRINGS = {"null", "none", "unknown", "no value provided", "n/a"}
@@ -142,8 +165,26 @@ ABBREV_TO_STATE_NAME = {abbr: name for name, abbr in STATE_NAME_TO_ABBREV.items(
 
 # Run the LLM. Give it the messages array and then return the generated content
 def run_llm(messages, maxTokens=256, log_fn: LogFn | None = None):
+    groq = _get_groq_client()
+    if groq is not None:
+        if log_fn:
+            log_fn(f"Running Groq hosted inference model={GROQ_MODEL} maxTokens={maxTokens}")
+
+        try:
+            completion = groq.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                max_tokens=maxTokens,
+                temperature=0.0,
+                response_format={"type": "json_object"},
+            )
+            return completion.choices[0].message.content or ""
+        except Exception as exc:
+            if log_fn:
+                log_fn(f"Groq inference failed; falling back to local Hugging Face: {exc}")
+
     if log_fn:
-        log_fn(f"Running LLM inference (maxTokens={maxTokens})")
+        log_fn(f"Running local Hugging Face inference (maxTokens={maxTokens})")
 
     text_pipeline = _get_pipeline()
     outputs = text_pipeline(

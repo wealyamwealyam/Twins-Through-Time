@@ -444,6 +444,18 @@ def image_group_parts(group: Any) -> tuple[str, list[str]]:
     return label, candidates
 
 
+def resolve_image_side(label: str, group_index: int, total_groups: int) -> str:
+    cleaned = label.strip().lower()
+    if cleaned in ("front", "back"):
+        return cleaned
+
+    # Common CONTENTdm compound-photo pattern: two unlabeled pages are front/back.
+    if total_groups == 2:
+        return "front" if group_index == 1 else "back"
+
+    return cleaned
+
+
 def apply_contentdm_hints_to_metadata(
     metadata: dict[str, Any],
     record: dict[str, Any],
@@ -531,11 +543,13 @@ def save_record_folder(
             tags = [t.strip() for t in metadata["Tags"].split(",") if t.strip()]
 
         posted_count = 0
+        total_groups = len(image_groups)
         for group_index, group in enumerate(image_groups, start=1):
             if photo_limit is not None and posted_count >= photo_limit:
                 break
 
             label, candidates = image_group_parts(group)
+            image_side = resolve_image_side(label, group_index, total_groups)
             if not candidates:
                 continue
 
@@ -550,18 +564,24 @@ def save_record_folder(
             )
 
             photo_other = dict(other)
+            photo_other.setdefault("Image Set ID", record_id)
+            photo_other.setdefault("Image Set Title", title)
             photo_other.setdefault("Image Group", str(group_index))
-            if label:
-                photo_other.setdefault("Image Side", label)
+            if image_side:
+                photo_other.setdefault("Image Side", image_side)
 
             photo_metadata = {
                 **metadata,
                 "Other": photo_other,
             }
 
+            display_name = full_name or title or None
+            if display_name and image_side:
+                display_name = f"{display_name} ({image_side})"
+
             photo_payload: dict[str, Any] = {
                 "imageUrl":    best_image_url,
-                "name":        full_name or title or None,
+                "name":        display_name,
                 "regiment":    metadata.get("Military Unit") or None,
                 "age":         metadata.get("Age") or None,
                 "dateTaken":   metadata.get("Year Born") or field_map.get("date") or None,
@@ -575,7 +595,7 @@ def save_record_folder(
             ok = api_client.post_photo(photo_payload)
             if ok:
                 posted_count += 1
-                side = f" ({label})" if label else ""
+                side = f" ({image_side})" if image_side else ""
                 logger.info(f"Posted photo to API for record {record_id}{side}: {best_image_url}")
             else:
                 logger.warn(f"Failed to post photo to API for record {record_id}")
@@ -609,11 +629,13 @@ def save_record_folder(
 
         used_stems: set[str] = set()
         images_saved = 0
+        total_groups = len(image_groups)
         for group_index, group in enumerate(image_groups, start=1):
             label = ""
             candidates: list[str] = []
 
             label, candidates = image_group_parts(group)
+            label = resolve_image_side(label, group_index, total_groups)
 
             if not candidates:
                 continue
