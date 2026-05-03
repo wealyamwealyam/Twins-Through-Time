@@ -6,6 +6,7 @@ import OnboardingSubmitModal from "../components/OnboardingSubmitModal";
 import Record from "../components/Record";
 import { apiRequest, getBackendSession } from "../utils/apiClient";
 import { readConfidence, getConfidenceStatus } from "../utils/confidenceUtils";
+import { deriveMetadataForReview } from "../utils/photoMetadata";
 import {
   createOnboardingRequest,
   getOnboardingRequests,
@@ -19,7 +20,7 @@ function toReviewImage(photo) {
     id: photo.id,
     src: photo.imageUrl,
     fileName: photo.imageUrl?.split("/").pop() || photo.id,
-    metadata: photo.metadata || {},
+    metadata: deriveMetadataForReview(photo),
   };
 }
 

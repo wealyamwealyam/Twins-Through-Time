@@ -12,6 +12,7 @@ import {
 import MetadataReviewPopup from "../components/MetadataPopup";
 import ConfidenceBadge from "../components/ConfidenceBadge";
 import { readConfidence, getConfidenceStatus } from "../utils/confidenceUtils";
+import { deriveMetadataForReview } from "../utils/photoMetadata";
 
 /*helper for image editing*/
 function toReviewImage(photo) {
@@ -21,7 +22,7 @@ function toReviewImage(photo) {
     fileName: photo.imageUrl?.split("/").pop() || photo.id,
     name: photo.name || "",
     photoNotes: photo.photoNotes || "",
-    scrapedMetadata: photo.metadata || {},
+    scrapedMetadata: deriveMetadataForReview(photo),
   };
 }
 

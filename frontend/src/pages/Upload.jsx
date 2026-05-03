@@ -5,6 +5,7 @@ import MetadataReviewPopup from "../components/MetadataPopup";
 import OnboardingSubmitModal from "../components/OnboardingSubmitModal";
 import { apiRequest, getBackendSession } from "../utils/apiClient";
 import { createOnboardingRequest, getOnboardingRequests, submitOnboardingRequest } from "../services/onboardingRequestService";
+import { deriveMetadataForReview } from "../utils/photoMetadata";
 
 function StatusBadge({ status }) {
   const styles = {
@@ -249,12 +250,7 @@ export default function Upload() {
           id: photo.id,
           src: photo.imageUrl,
           fileName: photo.imageUrl?.split("/").pop() || photo.id,
-          scrapedMetadata:
-            photo.scrapedMetadata ||
-            photo.metadata ||
-            photo.metadataJson ||
-            photo.finalMetadata ||
-            {},
+          scrapedMetadata: deriveMetadataForReview(photo),
         }))
       );
       setOpenReview(true);
