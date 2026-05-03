@@ -222,6 +222,7 @@ export const ingestPhoto = async (req, res) => {
     photoNotes    = null,
     tags          = [],
     license       = null,
+    metadata,
   } = req.body ?? {};
 
   if (!imageUrl) {
@@ -243,6 +244,7 @@ export const ingestPhoto = async (req, res) => {
     tags:           Array.isArray(tags) ? tags : [],
     license,
     isAutoExtracted: true,
+    metadata,
   });
 
   // Increment the job's photo count so the frontend can show live progress.
