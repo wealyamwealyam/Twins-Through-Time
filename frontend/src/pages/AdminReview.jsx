@@ -57,7 +57,7 @@ function ImageModal({ request, onClose, onEdit }) {
 
   const photos = request.photos || [];
   const flaggedCount = photos.filter(
-    (p) => getConfidenceStatus(readConfidence(p.metadata)) === "flagged"
+    (p) => getConfidenceStatus(readConfidence(deriveMetadataForReview(p))) === "flagged"
   ).length;
 
   return (
@@ -91,7 +91,7 @@ function ImageModal({ request, onClose, onEdit }) {
           {photos.length ? (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {photos.map((photo) => {
-                const score = readConfidence(photo.metadata);
+                const score = readConfidence(deriveMetadataForReview(photo));
                 const isFlagged = getConfidenceStatus(score) === "flagged";
 
                 return (

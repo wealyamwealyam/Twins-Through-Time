@@ -299,7 +299,7 @@ async function handleOnboardingDelete() {
 
       {photos.length > 0 ? (() => {
         const flaggedCount = photos.filter(
-          (p) => getConfidenceStatus(readConfidence(p.metadata)) === "flagged"
+          (p) => getConfidenceStatus(readConfidence(deriveMetadataForReview(p))) === "flagged"
         ).length;
 
         if (flaggedCount === 0) return null;
@@ -332,7 +332,7 @@ async function handleOnboardingDelete() {
             date={photo.dateTaken || ""}
             location={photo.location || ""}
             traits={toTraits(photo)}
-            confidenceScore={readConfidence(photo.metadata)}
+            confidenceScore={readConfidence(deriveMetadataForReview(photo))}
             onClick={() => openPhotoReview(photo)}
           />
         ))}
