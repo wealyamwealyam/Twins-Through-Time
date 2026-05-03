@@ -10,6 +10,8 @@ import {
   rejectOnboardingRequest,
 } from "../services/onboardingRequestService";
 import MetadataReviewPopup from "../components/MetadataPopup";
+import ConfidenceBadge from "../components/ConfidenceBadge";
+import { readConfidence, getConfidenceStatus } from "../utils/confidenceUtils";
 
 /*helper for image editing*/
 function toReviewImage(photo) {
@@ -19,6 +21,7 @@ function toReviewImage(photo) {
     fileName: photo.imageUrl?.split("/").pop() || photo.id,
     name: photo.name || "",
     photoNotes: photo.photoNotes || "",
+    scrapedMetadata: photo.metadata || {},
   };
 }
 
@@ -51,6 +54,11 @@ function StatusBadge({ status }) {
 function ImageModal({ request, onClose, onEdit }) {
   if (!request) return null;
 
+  const photos = request.photos || [];
+  const flaggedCount = photos.filter(
+    (p) => getConfidenceStatus(readConfidence(p.metadata)) === "flagged"
+  ).length;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
@@ -60,7 +68,12 @@ function ImageModal({ request, onClose, onEdit }) {
               {request.onboardingRequestTitle}
             </h2>
             <p className="mt-1 text-sm text-gray-500">
-              {request.photos?.length || 0} submitted image{request.photos?.length === 1 ? "" : "s"}
+              {photos.length} submitted image{photos.length === 1 ? "" : "s"}
+              {flaggedCount > 0 ? (
+                <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+                  {flaggedCount} flagged
+                </span>
+              ) : null}
             </p>
           </div>
 
@@ -74,44 +87,63 @@ function ImageModal({ request, onClose, onEdit }) {
         </div>
 
         <div className="max-h-[75vh] overflow-y-auto p-6">
-          {request.photos?.length ? (
+          {photos.length ? (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-              {request.photos.map((photo) => (
-                <article
-                  key={photo.id}
-                  className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
-                >
-                  <div className="flex h-64 items-center justify-center overflow-hidden rounded-xl bg-gray-100">
-                    <img
-                      src={photo.imageUrl}
-                      alt={photo.name || photo.id}
-                      className="h-full w-full object-contain"
-                    />
-                  </div>
+              {photos.map((photo) => {
+                const score = readConfidence(photo.metadata);
+                const isFlagged = getConfidenceStatus(score) === "flagged";
 
-                  <div className="mt-4">
-                  <div className="text-sm font-semibold text-gray-900">
-                    {photo.name || "Unidentified photo"}
-                  </div>
-                  <div className="mt-1 text-xs text-gray-500">
-                    {photo.status || "No status"}
-                  </div>
-                  {photo.photoNotes ? (
-                    <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-700">
-                      {photo.photoNotes}
-                    </div>
-                  ) : null}
-
-                  <button
-                    type="button"
-                    onClick={() => onEdit(photo)}
-                    className="mt-3 rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-800 transition"
+                return (
+                  <article
+                    key={photo.id}
+                    className={`rounded-2xl border bg-white p-4 shadow-sm ${
+                      isFlagged ? "border-red-300 ring-1 ring-red-200" : "border-gray-200"
+                    }`}
                   >
-                    Edit metadata
-                  </button>
-                </div>
-                </article>
-              ))}
+                    <div className="flex h-64 items-center justify-center overflow-hidden rounded-xl bg-gray-100">
+                      <img
+                        src={photo.imageUrl}
+                        alt={photo.name || photo.id}
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
+
+                    <div className="mt-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-gray-900">
+                            {photo.name || "Unidentified photo"}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {photo.status || "No status"}
+                          </div>
+                        </div>
+                        <ConfidenceBadge score={score} size="sm" showLabel={false} />
+                      </div>
+
+                      {isFlagged ? (
+                        <p className="mt-2 text-xs font-semibold text-red-700">
+                          AI confidence below 55% — review metadata before approval.
+                        </p>
+                      ) : null}
+
+                      {photo.photoNotes ? (
+                        <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                          {photo.photoNotes}
+                        </div>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => onEdit(photo)}
+                        className="mt-3 rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-800 transition"
+                      >
+                        Edit metadata
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center text-sm text-gray-600">

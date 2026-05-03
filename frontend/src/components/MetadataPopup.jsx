@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 
+import ConfidenceBadge from "./ConfidenceBadge";
+import {
+  CONFIDENCE_THRESHOLD,
+  formatConfidencePercent,
+  getConfidenceStatus,
+  readConfidence,
+} from "../utils/confidenceUtils";
+
 const FIXED_FIELDS = [
   { key: "First Name", type: "text" },
   { key: "Middle Name or Initial", type: "text" },
@@ -273,6 +281,8 @@ export default function MetadataReviewPopup({
   };
 
   const otherEntries = Object.entries(current.metadata.Other || {});
+  const currentScore = readConfidence(current.metadata);
+  const currentStatus = getConfidenceStatus(currentScore);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -302,6 +312,40 @@ export default function MetadataReviewPopup({
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-5">
+            <div
+              className={`mb-4 flex items-start gap-3 rounded-xl border px-4 py-3 ${
+                currentStatus === "flagged"
+                  ? "border-red-200 bg-red-50"
+                  : currentStatus === "passed"
+                  ? "border-emerald-200 bg-emerald-50"
+                  : "border-gray-200 bg-gray-50"
+              }`}
+            >
+              <ConfidenceBadge score={currentScore} size="md" />
+              <div className="text-xs leading-relaxed text-gray-700">
+                {currentStatus === "flagged" ? (
+                  <span>
+                    AI confidence is{" "}
+                    <strong>{formatConfidencePercent(currentScore)}</strong>, below the{" "}
+                    {Math.round(CONFIDENCE_THRESHOLD * 100)}% threshold. This photo is
+                    flagged — please verify and correct the metadata before saving.
+                  </span>
+                ) : currentStatus === "passed" ? (
+                  <span>
+                    AI confidence is{" "}
+                    <strong>{formatConfidencePercent(currentScore)}</strong>. This photo
+                    passed the {Math.round(CONFIDENCE_THRESHOLD * 100)}% threshold; you can
+                    still adjust any field below.
+                  </span>
+                ) : (
+                  <span>
+                    AI confidence is unavailable for this record. Review the metadata
+                    manually before saving.
+                  </span>
+                )}
+              </div>
+            </div>
+
             <div className="grid gap-4">
               {FIXED_FIELDS.map((field) => (
                 <div key={field.key}>

@@ -5,6 +5,7 @@ import MetadataReviewPopup from "../components/MetadataPopup";
 import OnboardingSubmitModal from "../components/OnboardingSubmitModal";
 import Record from "../components/Record";
 import { apiRequest, getBackendSession } from "../utils/apiClient";
+import { readConfidence, getConfidenceStatus } from "../utils/confidenceUtils";
 import {
   createOnboardingRequest,
   getOnboardingRequests,
@@ -295,6 +296,30 @@ async function handleOnboardingDelete() {
         </div>
       ) : null}
 
+      {photos.length > 0 ? (() => {
+        const flaggedCount = photos.filter(
+          (p) => getConfidenceStatus(readConfidence(p.metadata)) === "flagged"
+        ).length;
+
+        if (flaggedCount === 0) return null;
+
+        return (
+          <div className="mt-6 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+            <svg className="h-5 w-5 shrink-0 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+            <div>
+              <p className="font-semibold">
+                {flaggedCount} of {photos.length} photo{photos.length === 1 ? "" : "s"} flagged for manual review
+              </p>
+              <p className="mt-0.5 text-xs">
+                AI confidence below 55%. Open each flagged record and update its metadata before submitting for onboarding.
+              </p>
+            </div>
+          </div>
+        );
+      })() : null}
+
       <div className="mt-6 grid gap-4">
         {photos.map((photo) => (
           <Record
@@ -306,6 +331,7 @@ async function handleOnboardingDelete() {
             date={photo.dateTaken || ""}
             location={photo.location || ""}
             traits={toTraits(photo)}
+            confidenceScore={readConfidence(photo.metadata)}
             onClick={() => openPhotoReview(photo)}
           />
         ))}

@@ -1,3 +1,5 @@
+import ConfidenceBadge from "./ConfidenceBadge";
+
 export default function Record({
     imageSrc,
     imageAlt = "Historical photo",
@@ -6,6 +8,7 @@ export default function Record({
     date,
     location,
     traits = [],
+    confidenceScore,
     onClick,
   }) {
     return (
@@ -52,9 +55,14 @@ export default function Record({
                 )}
               </div>
   
-              <span className="rounded-full border bg-gray-50 px-2 py-1 text-xs text-gray-600">
-                Record
-              </span>
+              <div className="flex shrink-0 flex-col items-end gap-1.5">
+                {confidenceScore !== undefined ? (
+                  <ConfidenceBadge score={confidenceScore} size="sm" />
+                ) : null}
+                <span className="rounded-full border bg-gray-50 px-2 py-1 text-xs text-gray-600">
+                  Record
+                </span>
+              </div>
             </div>
   
             {/* Tags / Traits */}
