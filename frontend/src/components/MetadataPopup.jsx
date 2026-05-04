@@ -150,7 +150,7 @@ export default function MetadataReviewPopup({
     );
   }
 
-  const jsonPreview = JSON.stringify(annotations, null, 2);
+  const jsonPreview = JSON.stringify(current.metadata, null, 2);
   const progress = `${currentIndex + 1} / ${annotations.length}`;
 
   const updateField = (field, value) => {
@@ -482,7 +482,7 @@ export default function MetadataReviewPopup({
           <div className="border-b border-white/10 px-4 py-3">
             <h3 className="text-sm font-semibold">JSON Preview</h3>
             <p className="mt-1 text-xs text-gray-400">
-              debug and demo purposes - LIVE
+              Current image metadata - live
             </p>
           </div>
 
