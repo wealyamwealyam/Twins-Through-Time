@@ -1,3 +1,6 @@
+import { useState } from "react";
+import PropTypes from "prop-types";
+
 import ConfidenceBadge from "./ConfidenceBadge";
 
 export default function Record({
@@ -11,6 +14,9 @@ export default function Record({
     confidenceScore,
     onClick,
   }) {
+    const [imageFailed, setImageFailed] = useState(false);
+    const canShowImage = imageSrc && !imageFailed;
+
     return (
       <div
         onClick={onClick}
@@ -21,12 +27,13 @@ export default function Record({
         <div className="flex gap-4 p-4">
           {/* Image */}
           <div className="h-28 w-28 flex-none overflow-hidden rounded-xl bg-gray-100">
-            {imageSrc ? (
+            {canShowImage ? (
               <img
                 src={imageSrc}
                 alt={imageAlt}
                 className="h-full w-full object-cover"
                 loading="lazy"
+                onError={() => setImageFailed(true)}
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">
@@ -92,3 +99,23 @@ export default function Record({
       </div>
     );
   }
+
+Record.propTypes = {
+  imageSrc: PropTypes.string,
+  imageAlt: PropTypes.string,
+  title: PropTypes.string,
+  subtitle: PropTypes.string,
+  date: PropTypes.string,
+  location: PropTypes.string,
+  confidenceScore: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  traits: PropTypes.arrayOf(
+    PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.shape({
+        label: PropTypes.string.isRequired,
+        value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      }),
+    ])
+  ),
+  onClick: PropTypes.func,
+};

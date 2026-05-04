@@ -1,0 +1,20 @@
+{
+  "First Name": "Mike",
+  "Middle Name or Initial": null,
+  "Last Name": "Whiteman",
+  "Military Unit": "United States. Army. Illinois Infantry Regiment, 33rd (1861-1865)",
+  "Regiment Number": 33,
+  "Regiment State": "IL",
+  "Branch": "Army",
+  "Company": "33rd Regt",
+  "Age": null,
+  "Year Born": null,
+  "Transcript": "Back: Mike Whiteman deceased Lexington Ills Co. _. 33rd Regt.",
+  "Confidence": 0.767,
+  "Source": "https://collections.carli.illinois.edu/digital/collection/alp_bib/id/1489",
+  "Other": {
+    "Publisher": "Abraham Lincoln Presidential Library & Museum",
+    "Record ID": "1489",
+    "Source URL": "https://collections.carli.illinois.edu/digital/collection/alp_bib/id/1489"
+  }
+}

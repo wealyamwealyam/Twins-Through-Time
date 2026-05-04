@@ -14,15 +14,31 @@ import adminRoutes from './routes/adminRoutes.js';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const defaultAllowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:8080',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:8080',
+  'null',
+];
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+  : defaultAllowedOrigins;
+
 // Middleware
 app.use(cors({
-  origin: [
-    'http://localhost:5173',  // Vite dev server
-    'http://localhost:8080',  // Alternative local server
-    'http://127.0.0.1:5173',
-    'http://127.0.0.1:8080',
-    'null'                     // Allow file:// protocol (for direct HTML file opening) - Need to remove before produciton
-  ],
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true
 }));
 app.use(express.json());

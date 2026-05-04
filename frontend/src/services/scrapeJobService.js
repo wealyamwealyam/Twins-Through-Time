@@ -11,7 +11,7 @@ import { apiFetch } from "./api.js";
  * @param {{ url: string, maxPhotos?: number }} data
  * @returns {Promise<object>} created scrape job
  */
-export async function createScrapeJob({ url, maxPhotos = 50 }) {
+export async function createScrapeJob({ url, maxPhotos = 3 }) {
   return apiFetch("/api/scrape-jobs", {
     method: "POST",
     body:   JSON.stringify({ url, maxPhotos }),

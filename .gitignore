@@ -23,13 +23,13 @@ dist-ssr
 *.sln
 *.sw?
 
-# Environment variables — never commit secrets
+# Environment variables - never commit secrets
 .env
-.env.local
-.env.production
-backend/.env
-frontend/.env
-frontend/.env.local
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
 
 # Python
 scraping/__pycache__/

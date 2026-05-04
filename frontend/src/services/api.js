@@ -13,7 +13,8 @@
  * fails the user's tokens are cleared (forces re-login).
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
+const BASE_URL = rawBaseUrl.replace(/\/$/, "").replace(/\/api$/, "");
 
 const TOKEN_KEY         = "ttt_token";
 const REFRESH_TOKEN_KEY = "ttt_refresh_token";

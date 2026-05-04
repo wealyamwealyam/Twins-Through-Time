@@ -1,0 +1,25 @@
+{
+  "First Name": "Charles",
+  "Middle Name or Initial": "H.",
+  "Last Name": "Kirk",
+  "Military Unit": "15th Pennsylvania Cavalry",
+  "Regiment Number": 15,
+  "Regiment State": "PA",
+  "Branch": "Pennsylvania Cavalry",
+  "Company": "Company E",
+  "Age": null,
+  "Year Born": null,
+  "Transcript": "",
+  "Confidence": 0.7056,
+  "Source": "https://www.civilwarpittsburgh.com/post/the-ground-seemed-to-be-sacred-the-death-of-major-frank-biddle-ward",
+  "Other": {
+    "Ambiguity": "Identity is ambiguous due to lack of specific regiment number and birth year.",
+    "Hint Name Source": "caption",
+    "Hint Unit Source": "caption",
+    "Hint Company Source": "caption",
+    "Source URL": "https://www.civilwarpittsburgh.com/post/the-ground-seemed-to-be-sacred-the-death-of-major-frank-biddle-ward",
+    "Image URL": "https://static.wixstatic.com/media/d20736_797ffcc8bcf84460afc2206b9acad2f1~mv2.jpg",
+    "Image Heading": "\"The ground seemed to be sacred.\" - The death of Major Frank Biddle Ward",
+    "Image Caption": "Charles H. Kirk, Company E, 15th Pennsylvania Cavalry (History of the Fifteenth Pennsylvania Volunteer Cavalry, edited by Charles H. Kirk -1906-)"
+  }
+}

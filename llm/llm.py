@@ -3,31 +3,69 @@ import os
 import re
 from typing import Any, Callable
 
-import torch
-import transformers
-from dotenv import load_dotenv
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
 # Load from llm/.env first, then fall back to project root .env
 _this_dir = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(_this_dir, ".env"))
-load_dotenv()  # fallback to cwd .env
+if load_dotenv is not None:
+    load_dotenv(os.path.join(_this_dir, ".env"))
+    load_dotenv()  # fallback to cwd .env
+else:
+    # Keep the scraper usable on machines that have transformers/torch installed
+    # but not python-dotenv. This supports the simple KEY=value lines used here.
+    for env_path in (os.path.join(_this_dir, ".env"), os.path.join(os.getcwd(), ".env")):
+        if not os.path.exists(env_path):
+            continue
+        with open(env_path, "r", encoding="utf-8") as env_file:
+            for line in env_file:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+# Hosted LLM path. When this is set, the scraper avoids local CPU inference.
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+groq_client = None
 
 # get the current user's hugging face token from the .env file
 HF_TOKEN = os.getenv("HF_TOKEN")
-if HF_TOKEN is None:
-    raise RuntimeError("HF_TOKEN not found. You need to create a .env file with your HF_TOKEN in it.")
 
-# Primary model: Llama 3.2 (gated — requires Meta license acceptance)
-# Fallback model: SmolLM2-1.7B-Instruct (ungated, same instruction format)
-_PRIMARY_MODEL   = "meta-llama/Llama-3.2-3B-Instruct"
-_FALLBACK_MODEL  = "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+# Default to a small ungated model so local CPU scraping can finish.
+# Set LLM_MODEL_ID in llm/.env if you want a larger Hugging Face model.
+_PRIMARY_MODEL   = "HuggingFaceTB/SmolLM2-135M-Instruct"
+_FALLBACK_MODEL  = "HuggingFaceTB/SmolLM2-135M-Instruct"
 MODEL_ID = os.getenv("LLM_MODEL_ID", _PRIMARY_MODEL)
+pipeline = None
 
 def _load_pipeline():
     """Try primary model; fall back to ungated model if gated access is denied."""
+    if HF_TOKEN is None:
+        raise RuntimeError(
+            "HF_TOKEN not found. Set GROQ_API_KEY for hosted inference, "
+            "or set HF_TOKEN to use the local Hugging Face fallback."
+        )
+
+    try:
+        import torch
+        import transformers
+    except ImportError as exc:
+        raise RuntimeError(
+            "Local Hugging Face fallback requires torch and transformers. "
+            "Install them with: pip install -r llm/requirements-local-fallback.txt"
+        ) from exc
+
     for model in [MODEL_ID, _FALLBACK_MODEL] if MODEL_ID == _PRIMARY_MODEL else [MODEL_ID]:
         try:
-            print(f"[llm] Loading model: {model}")
+            print(f"[llm] Loading model: {model}", flush=True)
             p = transformers.pipeline(
                 "text-generation",
                 model=model,
@@ -35,20 +73,45 @@ def _load_pipeline():
                 device_map="cpu",
                 torch_dtype=torch.float32,
             )
-            print(f"[llm] ✅ Loaded: {model}")
+
+            tokenizer = getattr(p, "tokenizer", None)
+            if tokenizer is not None and getattr(tokenizer, "pad_token_id", None) is None:
+                eos_id = getattr(tokenizer, "eos_token_id", None)
+                unk_id = getattr(tokenizer, "unk_token_id", None)
+                if eos_id is not None:
+                    tokenizer.pad_token_id = eos_id
+                elif unk_id is not None:
+                    tokenizer.pad_token_id = unk_id
+
+            print(f"[llm] Loaded: {model}", flush=True)
             return p, model
         except Exception as e:
             if "gated" in str(e).lower() or "403" in str(e) or "401" in str(e):
-                print(f"[llm] ⚠️  {model} is gated / unauthorised — trying fallback.")
+                print(f"[llm] {model} is gated / unauthorised; trying fallback.", flush=True)
                 if model == _FALLBACK_MODEL:
                     raise
             else:
                 raise
     raise RuntimeError("Could not load any LLM model.")
 
-pipeline, MODEL_ID = _load_pipeline()
+def _get_pipeline():
+    global pipeline, MODEL_ID
+    if pipeline is None:
+        pipeline, MODEL_ID = _load_pipeline()
+    return pipeline
+
+def _get_groq_client():
+    global groq_client
+    if not GROQ_API_KEY:
+        return None
+    if Groq is None:
+        raise RuntimeError("GROQ_API_KEY is set, but the Python 'groq' package is not installed. Run: pip install groq")
+    if groq_client is None:
+        groq_client = Groq(api_key=GROQ_API_KEY)
+    return groq_client
 
 LogFn = Callable[[str], None]
+NULL_LIKE_STRINGS = {"null", "none", "unknown", "no value provided", "n/a"}
 
 
 STATE_NAME_TO_ABBREV = {
@@ -109,11 +172,35 @@ ABBREV_TO_STATE_NAME = {abbr: name for name, abbr in STATE_NAME_TO_ABBREV.items(
 
 # Run the LLM. Give it the messages array and then return the generated content
 def run_llm(messages, maxTokens=256, log_fn: LogFn | None = None):
+    groq = _get_groq_client()
+    if groq is not None:
+        if log_fn:
+            log_fn(f"Running Groq hosted inference model={GROQ_MODEL} maxTokens={maxTokens}")
+
+        try:
+            completion = groq.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                max_tokens=maxTokens,
+                temperature=0.0,
+                response_format={"type": "json_object"},
+            )
+            return completion.choices[0].message.content or ""
+        except Exception as exc:
+            if log_fn:
+                log_fn(f"Groq inference failed; falling back to local Hugging Face: {exc}")
+
     if log_fn:
-        log_fn(f"Running LLM inference (maxTokens={maxTokens})")
-    outputs = pipeline(
+        log_fn(f"Running local Hugging Face inference (maxTokens={maxTokens})")
+
+    text_pipeline = _get_pipeline()
+    outputs = text_pipeline(
         messages,
         max_new_tokens=maxTokens,
+        do_sample=False,
+        temperature=None,
+        top_p=None,
+        pad_token_id=getattr(getattr(text_pipeline, "tokenizer", None), "pad_token_id", None),
     )
     return outputs[0]["generated_text"][-1]["content"]
 
@@ -181,9 +268,28 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_metadata_messages(document_text: str) -> list[dict[str, str]]:
+NON_CONTENTDM_SYSTEM_PROMPT = (
+    "You extract metadata for one specific image from a non-CONTENTdm article/blog page. "
+    "The page may describe multiple people, so prioritize evidence in this order: "
+    "Image Caption, Image Alt Text, Nearby Paragraphs, Local Heading, then Article Summary. "
+    "Do not copy a person from article summary when caption/alt point to a different person. "
+    "If caption or nearby text contains a military unit phrase, copy that exact phrase into Military Unit. "
+    "If identity is ambiguous, leave uncertain fields null and explain ambiguity in Other. "
+    "Return ONLY one JSON object with these exact top-level keys: "
+    "First Name, Middle Name or Initial, Last Name, Military Unit, Regiment Number, "
+    "Regiment State, Branch, Company, Age, Year Born, Transcript, Confidence, Source, Other. "
+    "Rules: "
+    "(1) Unknown values -> null, except Confidence (0.0-1.0 number) and Source (URL string). "
+    "(2) Regiment Number, Age, and Year Born must be integers or null. "
+    "(3) Regiment State must be two-letter uppercase abbreviation. "
+    "(4) Branch, Company, and Transcript must be strings when known. "
+    "(5) Other must be a short key-value object. "
+    "(6) Do not add or remove top-level keys."
+)
+
+def build_metadata_messages(document_text: str, system_prompt: str | None = None) -> list[dict[str, str]]:
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
         {"role": "user", "content": document_text},
     ]
 
@@ -226,6 +332,8 @@ def _to_string(value: Any, default: str = "") -> str:
     if value is None:
         return default
     text = str(value).strip()
+    if text.lower() in NULL_LIKE_STRINGS:
+        return default
     return text if text else default
 
 
@@ -571,11 +679,16 @@ def _extract_first_json_block(text: str) -> str | None:
     return text[start : end + 1]
 
 
-def extract_metadata(document_text: str, maxTokens: int = 350, log_fn: LogFn | None = None) -> dict[str, Any]:
+def extract_metadata(
+    document_text: str,
+    maxTokens: int = 350,
+    log_fn: LogFn | None = None,
+    system_prompt: str | None = None,
+) -> dict[str, Any]:
     if log_fn:
         log_fn("Building metadata extraction prompt")
 
-    messages = build_metadata_messages(document_text)
+    messages = build_metadata_messages(document_text, system_prompt=system_prompt)
 
     try:
         response = run_llm(messages, maxTokens=maxTokens, log_fn=log_fn)
@@ -606,3 +719,5 @@ def extract_metadata(document_text: str, maxTokens: int = 350, log_fn: LogFn | N
 
     normalized = normalize_metadata_schema(parsed)
     return _finalize_confidence(normalized, document_text)
+
+

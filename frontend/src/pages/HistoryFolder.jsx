@@ -20,7 +20,9 @@ function toReviewImage(photo) {
     id: photo.id,
     src: photo.imageUrl,
     fileName: photo.imageUrl?.split("/").pop() || photo.id,
-    metadata: deriveMetadataForReview(photo),
+    name: photo.name || "",
+    photoNotes: photo.photoNotes || "",
+    scrapedMetadata: deriveMetadataForReview(photo),
   };
 }
 
@@ -116,9 +118,8 @@ export default function HistoryFolder() {
     setOpenReview(true);
   }
 
-    async function savePhotoMetadata(annotation) {
+  async function savePhotoMetadata(annotation) {
     const metadata = annotation.metadata || {};
-
     const updated = await apiRequest(`/photos/${annotation.id}`, {
       method: "PATCH",
       body: JSON.stringify({
@@ -126,7 +127,10 @@ export default function HistoryFolder() {
         name: [metadata["First Name"], metadata["Middle Name or Initial"], metadata["Last Name"]]
           .filter(Boolean)
           .join(" ") || null,
-        photoNotes: metadata["Transcript"] || null,
+        age: metadata.Age || null,
+        regiment: metadata["Military Unit"] || null,
+        dateTaken: metadata["Year Born"] || null,
+        photoNotes: JSON.stringify(metadata),
       }),
     });
 
