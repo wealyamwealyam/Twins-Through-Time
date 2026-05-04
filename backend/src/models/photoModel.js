@@ -181,6 +181,7 @@ const fromDb = (row) => {
     scrapeJobId:      row.scrape_job_id,
     submittedBy:      row.submitted_by,
     imageUrl:         toDisplayImageUrl(row.image_url),
+    originalImageUrl: row.image_url,
     status:           row.status,
     isDuplicate:      row.is_duplicate,
     duplicateOfId:    row.duplicate_of_id,
@@ -203,6 +204,56 @@ const fromDb = (row) => {
     updatedAt:        row.updated_at,
     metadata:         normalizeMetadata(row.metadata),
   };
+};
+
+export const findAllPhotosForScrapeJob = async ({ scrapeJobId, submittedBy } = {}) => {
+  const pageSize = 1000;
+  let from = 0;
+  const rows = [];
+
+  while (true) {
+    let query = supabase
+      .from('photos')
+      .select('*')
+      .eq('scrape_job_id', scrapeJobId)
+      .order('created_at', { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (submittedBy !== undefined) query = query.eq('submitted_by', submittedBy);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows.map(fromDb);
+};
+
+export const deletePhotosByIdsForScrapeJob = async ({ scrapeJobId, photoIds }) => {
+  if (!Array.isArray(photoIds) || photoIds.length === 0) {
+    return [];
+  }
+
+  const deleted = [];
+  const chunkSize = 100;
+
+  for (let i = 0; i < photoIds.length; i += chunkSize) {
+    const chunk = photoIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('photos')
+      .delete()
+      .eq('scrape_job_id', scrapeJobId)
+      .in('id', chunk)
+      .select('id');
+
+    if (error) throw error;
+    deleted.push(...(data ?? []).map((row) => row.id));
+  }
+
+  return deleted;
 };
 
 const toDisplayImageUrl = (value) => {

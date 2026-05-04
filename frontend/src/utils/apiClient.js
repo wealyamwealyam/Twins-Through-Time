@@ -61,3 +61,49 @@ export async function apiRequest(path, options = {}) {
 
   return body;
 }
+
+function filenameFromDisposition(disposition) {
+  if (!disposition) return null;
+
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+  }
+
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  return match?.[1] || null;
+}
+
+export async function apiBlobRequest(path, options = {}) {
+  const session = getBackendSession();
+  const headers = new Headers(options.headers || {});
+
+  if (!headers.has("Content-Type") && options.body) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  if (!options.skipAuth && session?.token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${session.token}`);
+  }
+
+  const { skipAuth, ...fetchOptions } = options;
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...fetchOptions,
+    headers,
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+
+    if (!skipAuth && response.status === 401) {
+      clearBackendSession();
+    }
+
+    throw new Error(getErrorMessage(body, `Request failed with status ${response.status}.`));
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: filenameFromDisposition(response.headers.get("Content-Disposition")),
+  };
+}

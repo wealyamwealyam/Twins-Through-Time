@@ -1,12 +1,12 @@
 -- =============================================================================
--- Twins Through Time — Supabase schema
--- Run this in: Supabase Dashboard → SQL Editor → New Query
+-- Twins Through Time - Supabase schema
+-- Run this in: Supabase Dashboard -> SQL Editor -> New Query
 -- =============================================================================
 
--- ─── Extensions ──────────────────────────────────────────────────────────────
+-- Extensions
 create extension if not exists "pgcrypto";
 
--- ─── Users ───────────────────────────────────────────────────────────────────
+-- Users
 create table if not exists users (
   id            uuid        primary key default gen_random_uuid(),
   username      text        unique not null,
@@ -23,14 +23,14 @@ create table if not exists users (
   updated_at    timestamptz not null default now()
 );
 
--- ─── Refresh tokens ──────────────────────────────────────────────────────────
+-- Refresh tokens
 create table if not exists refresh_tokens (
   token      text        primary key,
   user_id    uuid        not null references users(id) on delete cascade,
   expires_at timestamptz not null
 );
 
--- ─── Password reset tokens ───────────────────────────────────────────────────
+-- Password reset tokens
 create table if not exists reset_tokens (
   token      text        primary key,
   user_id    uuid        not null references users(id) on delete cascade,
@@ -38,26 +38,26 @@ create table if not exists reset_tokens (
   used       boolean     not null default false
 );
 
--- ─── Scrape jobs ─────────────────────────────────────────────────────────────
+-- Scrape jobs
 create table if not exists scrape_jobs (
-  id           uuid        primary key default gen_random_uuid(),
-  url          text        not null,
-  max_photos   int         not null default 50,
-  status       text        not null default 'queued'
-               check (status in ('queued', 'running', 'completed', 'failed', 'cancelled')),
-  submitted_by uuid        not null references users(id) on delete cascade,
-  photo_count  int         not null default 0,
+  id            uuid        primary key default gen_random_uuid(),
+  url           text        not null,
+  max_photos    int         not null default 50,
+  status        text        not null default 'queued'
+                check (status in ('queued', 'running', 'completed', 'failed', 'cancelled')),
+  submitted_by  uuid        not null references users(id) on delete cascade,
+  photo_count   int         not null default 0,
   error_message text,
-  started_at   timestamptz,
-  completed_at timestamptz,
-  created_at   timestamptz not null default now(),
-  updated_at   timestamptz not null default now()
+  started_at    timestamptz,
+  completed_at  timestamptz,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
 );
 
 alter table scrape_jobs
   add column if not exists error_message text;
 
--- ─── Photos ──────────────────────────────────────────────────────────────────
+-- Photos
 create table if not exists photos (
   id                 uuid        primary key default gen_random_uuid(),
   scrape_job_id      uuid        references scrape_jobs(id) on delete set null,
@@ -70,7 +70,6 @@ create table if not exists photos (
   is_auto_extracted  boolean     not null default true,
   metadata_edited_by uuid        references users(id) on delete set null,
   metadata_edited_at timestamptz,
-  -- metadata
   name               text,
   regiment           text,
   age                text,
@@ -103,49 +102,7 @@ add column if not exists metadata jsonb not null default '{
   "Other": {}
 }'::jsonb;
 
--- ─── Onboarding requests ─────────────────────────────────────────────────────
-create table if not exists onboarding_requests (
-  id                       uuid        primary key default gen_random_uuid(),
-  onboarding_request_title text        not null,
-  onboarding_request_notes text,
-  submitted_by             uuid        not null references users(id) on delete cascade,
-  status                   text        not null default 'pending'
-                           check (status in ('pending', 'under_review', 'approved', 'rejected', 'onboarded')),
-  photo_ids                uuid[]      not null default '{}',
-  has_received_suggestions boolean     not null default false,
-  reviewer_id              uuid        references users(id) on delete set null,
-  reviewed_by              uuid        references users(id) on delete set null,
-  reviewed_at              timestamptz,
-  admin_note               text,
-  suggestion_ids           uuid[]      not null default '{}',
-  created_at               timestamptz not null default now(),
-  updated_at               timestamptz not null default now()
-);
-
--- ─── Suggestions ─────────────────────────────────────────────────────────────
-create table if not exists suggestions (
-  id                       uuid        primary key default gen_random_uuid(),
-  onboarding_request_id    uuid        not null references onboarding_requests(id) on delete cascade,
-  reviewer_id              uuid        not null references users(id) on delete cascade,
-  onboarding_request_note  text,
-  created_at               timestamptz not null default now()
-);
-
--- ─── Suggested photo edits ───────────────────────────────────────────────────
-create table if not exists suggested_photo_edits (
-  id                 uuid    primary key default gen_random_uuid(),
-  suggestion_id      uuid    not null references suggestions(id) on delete cascade,
-  original_photo_id  uuid    not null references photos(id) on delete cascade,
-  suggested_name     text,
-  suggested_regiment text,
-  suggested_tags     text[],
-  suggested_notes    text,
-  applied_at         timestamptz,
-  applied_by         uuid    references users(id) on delete set null,
-  responder_note     text
-);
-
--- ─── Account change requests ─────────────────────────────────────────────────
+-- Account change requests
 create table if not exists account_change_requests (
   id                 uuid        primary key default gen_random_uuid(),
   user_id            uuid        not null references users(id) on delete cascade,
@@ -162,7 +119,7 @@ create table if not exists account_change_requests (
   updated_at         timestamptz not null default now()
 );
 
--- ─── Auto-update updated_at timestamps ───────────────────────────────────────
+-- Auto-update updated_at timestamps
 create or replace function update_updated_at()
 returns trigger language plpgsql as $$
 begin
@@ -181,10 +138,6 @@ create trigger set_updated_at_scrape_jobs
 
 create trigger set_updated_at_photos
   before update on photos
-  for each row execute function update_updated_at();
-
-create trigger set_updated_at_onboarding_requests
-  before update on onboarding_requests
   for each row execute function update_updated_at();
 
 create trigger set_updated_at_account_change_requests

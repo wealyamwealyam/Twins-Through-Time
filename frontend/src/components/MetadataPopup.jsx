@@ -90,7 +90,6 @@ export default function MetadataReviewPopup({
   isOpen,
   onClose,
   onSave,
-  onOnboardingSubmit,
 }) {
   const initialData = useMemo(
     () => images.map((img, idx) => buildInitialAnnotation(img, idx)),
@@ -464,16 +463,6 @@ export default function MetadataReviewPopup({
               >
                 {isSaving ? "Saving..." : "Save metadata"}
               </button>
-
-              {currentIndex === annotations.length - 1 && onOnboardingSubmit ? (
-                <button
-                  type="button"
-                  onClick={onOnboardingSubmit}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
-                >
-                  Submit for onboarding →
-                </button>
-              ) : null}
             </div>
           </div>
         </div>
@@ -512,5 +501,5 @@ MetadataReviewPopup.propTypes = {
   isOpen: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onSave: PropTypes.func,
-  onOnboardingSubmit: PropTypes.func,
 };
+

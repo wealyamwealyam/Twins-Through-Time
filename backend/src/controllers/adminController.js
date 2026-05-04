@@ -20,7 +20,6 @@ import {
   toPublic,
 } from '../models/userModel.js';
 import { findPhotos } from '../models/photoModel.js';
-import { findOnboardingRequests } from '../models/onboardingRequestModel.js';
 import { countScrapeJobs } from '../models/scrapeJobModel.js';
 import { deleteAllUserRefreshTokens } from '../models/authModel.js';
 
@@ -205,24 +204,16 @@ export const deleteUser = async (req, res) => {
 // GET /admin/dashboard/stats  🔴
 // ---------------------------------------------------------------------------
 export const getDashboardStats = async (req, res) => {
-  const [allUsers, allPhotosResult, pendingRequests, approvedRequests, onboardedData, totalScrapeJobs] =
+  const [allUsers, allPhotosResult, totalScrapeJobs] =
     await Promise.all([
       findAll(),
       findPhotos({ limit: 100000 }),
-      findOnboardingRequests({ status: 'under_review', limit: 100000 }),
-      findOnboardingRequests({ status: 'approved',     limit: 100000 }),
-      findOnboardingRequests({ status: 'onboarded',    limit: 100000 }),
       countScrapeJobs(),
     ]);
-
-  const onboardedPhotos = onboardedData.data.reduce((sum, r) => sum + r.photoIds.length, 0);
 
   return res.status(200).json({
     totalUsers:      allUsers.length,
     totalScrapeJobs,
     totalPhotos:     allPhotosResult.total,
-    pendingRequests: pendingRequests.total,
-    approvedRequests:approvedRequests.total,
-    onboardedPhotos,
   });
 };

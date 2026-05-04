@@ -22,6 +22,8 @@ import {
   listScrapeJobs,
   getScrapeJob,
   cancelScrapeJob,
+  downloadScrapeJobPhotos,
+  deleteScrapeJobPhotos,
   updateJobStatus,
   ingestPhoto,
 } from '../controllers/scrapeJobController.js';
@@ -31,6 +33,8 @@ const router = Router();
 // User-facing routes (JWT required)
 router.post(  '/',    authenticate, submitScrapeJob);
 router.get(   '/',    authenticate, listScrapeJobs);
+router.post(  '/:id/photos/download', authenticate, downloadScrapeJobPhotos);
+router.delete('/:id/photos',          authenticate, deleteScrapeJobPhotos);
 router.get(   '/:id', authenticate, getScrapeJob);
 router.delete('/:id', authenticate, cancelScrapeJob);
 

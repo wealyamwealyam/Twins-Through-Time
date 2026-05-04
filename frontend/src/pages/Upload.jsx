@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import PropTypes from "prop-types";
 
-import MetadataReviewPopup from "../components/MetadataPopup";
-import OnboardingSubmitModal from "../components/OnboardingSubmitModal";
+import DownloadDropdown from "../components/DownloadDropdown";
 import { apiRequest, getBackendSession } from "../utils/apiClient";
-import { createOnboardingRequest, getOnboardingRequests, submitOnboardingRequest } from "../services/onboardingRequestService";
-import { deriveMetadataForReview } from "../utils/photoMetadata";
+import { downloadScrapePhotos } from "../services/scrapePhotoService";
 
 const DEFAULT_MAX_PHOTOS = 3;
 
@@ -39,16 +38,8 @@ export default function Upload() {
   const [deleteId, setDeleteId] = useState(null);
   const [loadingRuns, setLoadingRuns] = useState(true);
   const [errorDetails, setErrorDetails] = useState(null);
-  const [reviewImages, setReviewImages] = useState([]);
-  const [reviewPhotoIds, setReviewPhotoIds] = useState([]);
   const [reviewMessage, setReviewMessage] = useState("");
-  const [openReview, setOpenReview] = useState(false);
-  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-  const [onboardingSuccessBanner, setOnboardingSuccessBanner] = useState(false);
-  // Map of scrapeJobId → onboarding request (for runs that already have one)
-  const [requestByJobId, setRequestByJobId] = useState({});
-  // Tracks which job is currently being submitted so we can update the map after
-  const pendingJobIdRef = useRef(null);
+  const [downloadJobId, setDownloadJobId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -60,29 +51,9 @@ export default function Upload() {
       }
 
       try {
-        const [result, requestsData, photosData] = await Promise.all([
-          apiRequest("/scrape-jobs"),
-          getOnboardingRequests({ limit: 100 }).catch(() => null),
-          apiRequest("/photos?limit=500").catch(() => null),
-        ]);
+        const result = await apiRequest("/scrape-jobs");
         if (!cancelled) {
           setRuns(result?.data || []);
-
-          // Build photoId → scrapeJobId from all photos
-          const photoToJob = {};
-          for (const photo of photosData?.data || []) {
-            if (photo.scrapeJobId) photoToJob[photo.id] = photo.scrapeJobId;
-          }
-
-          // Build scrapeJobId → onboarding request
-          const map = {};
-          for (const req of requestsData?.data || []) {
-            for (const pid of req.photoIds || []) {
-              const jid = photoToJob[pid];
-              if (jid && !map[jid]) map[jid] = req;
-            }
-          }
-          setRequestByJobId(map);
         }
       } catch (error) {
         if (!cancelled) {
@@ -217,116 +188,17 @@ export default function Upload() {
     }
   }
 
-  async function openBackendReview(run) {
+  async function handleDownload(run, filter) {
     setReviewMessage("");
-    setOnboardingSuccessBanner(false);
+    setDownloadJobId(run.id);
 
     try {
-      const result = await apiRequest(`/photos?scrapeJobId=${encodeURIComponent(run.id)}&limit=100`);
-      const photos = result?.data || [];
-
-      if (photos.length === 0) {
-        setReviewMessage("This scrape completed, but no photos were created for review.");
-        return;
-      }
-
-      // Mark all fetched photos as "reviewed" so they are eligible for onboarding
-      await Promise.allSettled(
-        photos.map((photo) =>
-          apiRequest(`/photos/${photo.id}/status`, {
-            method: "PATCH",
-            body: JSON.stringify({ status: "reviewed" }),
-          })
-        )
-      );
-
-      setReviewImages(
-        photos.map((photo) => ({
-          id: photo.id,
-          src: photo.imageUrl,
-          fileName: photo.imageUrl?.split("/").pop() || photo.id,
-          scrapedMetadata: deriveMetadataForReview(photo),
-        }))
-      );
-      setOpenReview(true);
+      await downloadScrapePhotos(run.id, filter);
+      setReviewMessage("Download started.");
     } catch (error) {
-      setReviewMessage(error?.message || "Unable to load scraped photos.");
-    }
-  }
-
-  async function savePhotoMetadata(annotation) {
-    const metadata = annotation.metadata || {};
-  
-    await apiRequest(`/photos/${annotation.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        metadata,
-
-        // optional compatibility fields if your backend/UI still uses them elsewhere
-        name: [metadata["First Name"], metadata["Middle Name or Initial"], metadata["Last Name"]]
-          .filter(Boolean)
-          .join(" ") || null,
-        photoNotes: JSON.stringify(metadata),
-      }),
-    });
-  }
-
-async function handleOnboardingSubmit(title, notes) {
-  const created = await createOnboardingRequest({
-    title,
-    notes,
-    photoIds: reviewPhotoIds,
-  });
-
-  const submitted = await submitOnboardingRequest(created.id);
-
-  setOpenReview(false);
-  setShowOnboardingModal(false);
-  setReviewImages([]);
-  setReviewPhotoIds([]);
-  setOnboardingSuccessBanner(true);
-
-  if (pendingJobIdRef.current && created) {
-    setRequestByJobId((prev) => ({
-      ...prev,
-      [pendingJobIdRef.current]: {
-        ...created,
-        status: submitted.status,
-      },
-    }));
-    pendingJobIdRef.current = null;
-  }
-}
-  
-
-  async function openDirectOnboarding(run) {
-    setReviewMessage("");
-    setOnboardingSuccessBanner(false);
-    pendingJobIdRef.current = run.id;
-
-    try {
-      const result = await apiRequest(`/photos?scrapeJobId=${encodeURIComponent(run.id)}&limit=100`);
-      const photos = result?.data || [];
-
-      if (photos.length === 0) {
-        setReviewMessage("This scrape completed, but no photos were found to submit.");
-        return;
-      }
-
-      // Mark all photos as "reviewed" so they pass the onboarding requirement
-      await Promise.allSettled(
-        photos.map((photo) =>
-          apiRequest(`/photos/${photo.id}/status`, {
-            method: "PATCH",
-            body: JSON.stringify({ status: "reviewed" }),
-          })
-        )
-      );
-
-      setReviewPhotoIds(photos.map((p) => p.id));
-      setShowOnboardingModal(true);
-    } catch (err) {
-      setReviewMessage(err?.message || "Unable to load photos for this run.");
+      setReviewMessage(error?.message || "Unable to download scrape photos.");
+    } finally {
+      setDownloadJobId("");
     }
   }
 
@@ -350,27 +222,6 @@ async function handleOnboardingSubmit(title, notes) {
           Paste a Civil War photo archive URL to begin scraping images and metadata.
         </p>
       </div>
-
-      {onboardingSuccessBanner ? (
-        <div className="mb-5 flex items-center gap-3 rounded-2xl border border-green-200 bg-green-50 px-5 py-4">
-          <svg className="h-5 w-5 text-green-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-green-800">Onboarding request submitted!</p>
-            <p className="text-xs text-green-700">An admin will review your photos and metadata.</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setOnboardingSuccessBanner(false)}
-            className="text-green-600 hover:text-green-800 transition"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -494,34 +345,35 @@ async function handleOnboardingSubmit(title, notes) {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      {run.status === "completed" ? (
-                        requestByJobId[run.id] ? (
-                          /* ── Already submitted ── */
-                          <span className="flex items-center gap-1 text-xs font-semibold text-indigo-700">
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                            Submitted
-                          </span>
-                        ) : (
-                          /* ── Not yet submitted ── */
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => openDirectOnboarding(run)}
-                              className="text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg transition"
-                            >
-                              Submit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openBackendReview(run)}
-                              className="text-xs font-semibold text-gray-900 hover:underline"
-                            >
-                              Review →
-                            </button>
-                          </>
-                        )
+                      {run.status === "completed" && (run.photoCount ?? 0) > 0 ? (
+                        <>
+                          <Link
+                            to={`/history/${run.id}`}
+                            className="text-xs font-semibold text-gray-900 hover:underline"
+                          >
+                            Review photos
+                          </Link>
+                          <DownloadDropdown
+                            busy={downloadJobId === run.id}
+                            options={[
+                              {
+                                value: "all",
+                                label: "Download all photos",
+                                onClick: () => handleDownload(run, "all"),
+                              },
+                              {
+                                value: "passed",
+                                label: "Download passed photos",
+                                onClick: () => handleDownload(run, "passed"),
+                              },
+                              {
+                                value: "flagged",
+                                label: "Download flagged photos",
+                                onClick: () => handleDownload(run, "flagged"),
+                              },
+                            ]}
+                          />
+                        </>
                       ) : null}
                       {["queued", "running"].includes(run.status) ? (
                         <button
@@ -645,29 +497,9 @@ async function handleOnboardingSubmit(title, notes) {
           </div>
         </div>
       ) : null}
-
-      <MetadataReviewPopup
-        images={reviewImages}
-        isOpen={openReview}
-        onClose={() => {
-          setOpenReview(false);
-          setReviewImages([]);
-          setReviewPhotoIds([]);
-        }}
-        onSave={reviewImages.length > 0 ? savePhotoMetadata : undefined}
-        onOnboardingSubmit={
-          reviewPhotoIds.length > 0
-            ? () => setShowOnboardingModal(true)
-            : undefined
-        }
-      />
-
-      <OnboardingSubmitModal
-        isOpen={showOnboardingModal}
-        photoCount={reviewPhotoIds.length}
-        onSubmit={handleOnboardingSubmit}
-        onClose={() => setShowOnboardingModal(false)}
-      />
-    </div>
+</div>
   );
 }
+
+
+
