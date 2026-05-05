@@ -57,8 +57,10 @@ export default function HistoryFolder() {
   const [photos, setPhotos] = useState([]);
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [reviewImages, setReviewImages] = useState([]);
   const [openReview, setOpenReview] = useState(false);
+  const [reviewInitialIndex, setReviewInitialIndex] = useState(0);
+  const [reviewInitialPhotoId, setReviewInitialPhotoId] = useState(null);
+  const [reviewSession, setReviewSession] = useState(0);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState([]);
   const [downloading, setDownloading] = useState("");
   const [deleting, setDeleting] = useState("");
@@ -103,8 +105,16 @@ export default function HistoryFolder() {
     };
   }, [jobId]);
 
-  function openPhotoReview(photo) {
-    setReviewImages([toReviewImage(photo)]);
+  const displayedPhotos = photos;
+  const reviewImages = useMemo(
+    () => displayedPhotos.map((photo) => toReviewImage(photo)),
+    [displayedPhotos]
+  );
+
+  function openPhotoReview(photoId, photoIndex) {
+    setReviewInitialPhotoId(photoId);
+    setReviewInitialIndex(photoIndex);
+    setReviewSession((current) => current + 1);
     setOpenReview(true);
   }
 
@@ -373,7 +383,7 @@ export default function HistoryFolder() {
         : null}
 
       <div className="mt-6 grid gap-4">
-        {photos.map((photo) => (
+        {displayedPhotos.map((photo, index) => (
           <Record
             key={photo.id}
             imageSrc={photo.imageUrl}
@@ -406,17 +416,21 @@ export default function HistoryFolder() {
                 </button>
               </>
             }
-            onClick={() => openPhotoReview(photo)}
+            onClick={() => openPhotoReview(photo.id, index)}
           />
         ))}
       </div>
 
       <MetadataReviewPopup
+        key={reviewSession}
         images={reviewImages}
+        initialIndex={reviewInitialIndex}
+        initialImageId={reviewInitialPhotoId}
         isOpen={openReview}
         onClose={() => {
           setOpenReview(false);
-          setReviewImages([]);
+          setReviewInitialIndex(0);
+          setReviewInitialPhotoId(null);
         }}
         onSave={savePhotoMetadata}
       />
