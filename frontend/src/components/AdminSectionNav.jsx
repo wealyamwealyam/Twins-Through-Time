@@ -3,7 +3,6 @@ import { NavLink } from "react-router-dom";
 const links = [
   { to: "/admin", label: "Dashboard", end: true },
   { to: "/admin/users", label: "Users" },
-  { to: "/admin/review", label: "Review Queue" },
 ];
 
 export default function AdminSectionNav() {

@@ -8,7 +8,6 @@ import accountRoutes from './routes/accountRoutes.js';
 import accountChangeRequestRoutes from './routes/accountChangeRequestRoutes.js';
 import scrapeJobRoutes from './routes/scrapeJobRoutes.js';
 import photoRoutes from './routes/photoRoutes.js';
-import onboardingRequestRoutes from './routes/onboardingRequestRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 
 const app = express();
@@ -39,6 +38,7 @@ app.use(cors({
 
     callback(new Error(`CORS blocked for origin: ${origin}`));
   },
+  exposedHeaders: ['Content-Disposition'],
   credentials: true
 }));
 app.use(express.json());
@@ -92,9 +92,6 @@ app.use('/api/scrape-jobs', scrapeJobRoutes);
 // Photos API routes (§5 in docs/apis.md)
 app.use('/api/photos', photoRoutes);
 
-// Onboarding Requests API routes (§6 in docs/apis.md)
-app.use('/api/onboarding-requests', onboardingRequestRoutes);
-
 // Admin API routes (§8 in docs/apis.md)
 app.use('/api/admin', adminRoutes);
 
@@ -124,3 +121,4 @@ server.on('error', (err) => {
     throw err;
   }
 });
+

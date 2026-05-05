@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import HistoryHeader from "../components/HistoryHeader";
 import { apiRequest, getBackendSession } from "../utils/apiClient";
-import { getOnboardingRequests } from "../services/onboardingRequestService";
 
 function formatDate(iso) {
   if (!iso) return "Unknown date";
@@ -27,8 +26,6 @@ export default function History() {
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  // Map of photoId → onboarding request, built after both loads
-  const [requestByPhotoId, setRequestByPhotoId] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -41,29 +38,9 @@ export default function History() {
       }
 
       try {
-        const [result, requestsData, photosData] = await Promise.all([
-          apiRequest("/scrape-jobs?limit=100"),
-          getOnboardingRequests({ limit: 100 }).catch(() => null),
-          apiRequest("/photos?limit=500").catch(() => null),
-        ]);
+        const result = await apiRequest("/scrape-jobs?limit=100");
         if (!cancelled) {
           setJobs(result?.data || []);
-
-          // Build photoId → scrapeJobId lookup from all user photos
-          const photoToJob = {};
-          for (const photo of photosData?.data || []) {
-            if (photo.scrapeJobId) photoToJob[photo.id] = photo.scrapeJobId;
-          }
-
-          // Build scrapeJobId → onboarding request lookup
-          const map = {};
-          for (const req of requestsData?.data || []) {
-            for (const pid of req.photoIds || []) {
-              const jid = photoToJob[pid];
-              if (jid && !map[jid]) map[jid] = req;
-            }
-          }
-          setRequestByPhotoId(map);
         }
       } catch (error) {
         if (!cancelled) {
@@ -155,16 +132,6 @@ export default function History() {
                   {job.status}
                 </span>
               </div>
-              {requestByPhotoId[job.id] ? (
-                <div className="mt-2 flex items-center gap-1.5">
-                  <svg className="h-3 w-3 text-indigo-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="text-xs font-semibold text-indigo-700">
-                    Onboarding request submitted
-                  </span>
-                </div>
-              ) : null}
             </div>
           </Link>
         ))}
@@ -172,3 +139,4 @@ export default function History() {
     </div>
   );
 }
+

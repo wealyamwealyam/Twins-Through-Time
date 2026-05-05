@@ -14,6 +14,41 @@
 
 import { supabase } from '../config/supabase.js';
 
+const DEFAULT_METADATA = Object.freeze({
+  "First Name": "",
+  "Middle Name or Initial": "",
+  "Last Name": "",
+  "Military Unit": "",
+  "Regiment Number": "",
+  "Regiment State": "",
+  "Branch": "",
+  "Company": "",
+  "Age": 0,
+  "Year Born": 0,
+  "Transcript": "",
+  "Confidence": 0.0,
+  "Source": "",
+  "Other": {},
+});
+
+const cloneDefaultMetadata = () =>
+  JSON.parse(JSON.stringify(DEFAULT_METADATA));
+
+const isPlainObject = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const normalizeMetadata = (value) => {
+  const base = cloneDefaultMetadata();
+
+  if (!isPlainObject(value)) return base;
+
+  return {
+    ...base,
+    ...value,
+    Other: isPlainObject(value.Other) ? value.Other : {},
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Column mapping helpers
 // ---------------------------------------------------------------------------
@@ -38,6 +73,7 @@ const toDb = (obj) => ({
   ...(obj.photoNotes         !== undefined && { photo_notes:         obj.photoNotes }),
   ...(obj.tags               !== undefined && { tags:                obj.tags }),
   ...(obj.license            !== undefined && { license:             obj.license }),
+  ...(obj.metadata !== undefined && { metadata: normalizeMetadata(obj.metadata) }),
 });
 
 const parsePhotoNotes = (value) => {
@@ -145,6 +181,7 @@ const fromDb = (row) => {
     scrapeJobId:      row.scrape_job_id,
     submittedBy:      row.submitted_by,
     imageUrl:         toDisplayImageUrl(row.image_url),
+    originalImageUrl: row.image_url,
     status:           row.status,
     isDuplicate:      row.is_duplicate,
     duplicateOfId:    row.duplicate_of_id,
@@ -165,7 +202,58 @@ const fromDb = (row) => {
     metadataJson:      scrapedMetadata,
     createdAt:        row.created_at,
     updatedAt:        row.updated_at,
+    metadata:         normalizeMetadata(row.metadata),
   };
+};
+
+export const findAllPhotosForScrapeJob = async ({ scrapeJobId, submittedBy } = {}) => {
+  const pageSize = 1000;
+  let from = 0;
+  const rows = [];
+
+  while (true) {
+    let query = supabase
+      .from('photos')
+      .select('*')
+      .eq('scrape_job_id', scrapeJobId)
+      .order('created_at', { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (submittedBy !== undefined) query = query.eq('submitted_by', submittedBy);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows.map(fromDb);
+};
+
+export const deletePhotosByIdsForScrapeJob = async ({ scrapeJobId, photoIds }) => {
+  if (!Array.isArray(photoIds) || photoIds.length === 0) {
+    return [];
+  }
+
+  const deleted = [];
+  const chunkSize = 100;
+
+  for (let i = 0; i < photoIds.length; i += chunkSize) {
+    const chunk = photoIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('photos')
+      .delete()
+      .eq('scrape_job_id', scrapeJobId)
+      .in('id', chunk)
+      .select('id');
+
+    if (error) throw error;
+    deleted.push(...(data ?? []).map((row) => row.id));
+  }
+
+  return deleted;
 };
 
 const toDisplayImageUrl = (value) => {
@@ -222,6 +310,7 @@ export const createPhoto = async ({
   tags         = [],
   license      = null,
   isAutoExtracted = true,
+  metadata = undefined,
 }) => {
   const { data, error } = await supabase
     .from('photos')
@@ -232,6 +321,7 @@ export const createPhoto = async ({
       isAutoExtracted, metadataEditedBy: null, metadataEditedAt: null,
       name, regiment, age, dateTaken, location, photographer,
       collection, photoNotes, tags: Array.isArray(tags) ? tags : [], license,
+      metadata: metadata === undefined ? cloneDefaultMetadata() : normalizeMetadata(metadata),
     })])
     .select()
     .single();

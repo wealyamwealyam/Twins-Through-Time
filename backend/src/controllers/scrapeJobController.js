@@ -23,7 +23,16 @@ import {
   findScrapeJobs,
   updateScrapeJob,
 } from '../models/scrapeJobModel.js';
-import { createPhoto } from '../models/photoModel.js';
+import {
+  createPhoto,
+  deletePhotosByIdsForScrapeJob,
+  findAllPhotosForScrapeJob,
+} from '../models/photoModel.js';
+import {
+  getPhotoConfidenceStatus,
+  normalizeConfidenceThreshold,
+} from '../utils/confidence.js';
+import { createZip } from '../utils/zip.js';
 
 const errBody = (code, message, details = null) => ({ error: { code, message, details } });
 
@@ -31,6 +40,101 @@ const VALID_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled']
 const DEFAULT_MAX_PHOTOS = Math.max(1, Number(process.env.DEFAULT_MAX_PHOTOS) || 3);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const activeWorkers = new Map();
+
+const sanitizeFilePart = (value, fallback) => {
+  const cleaned = String(value || '')
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  return cleaned || fallback;
+};
+
+const extensionFrom = (url, contentType) => {
+  const byType = {
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/tiff': '.tif',
+    'image/bmp': '.bmp',
+  };
+
+  const normalizedType = String(contentType || '').split(';')[0].trim().toLowerCase();
+  if (byType[normalizedType]) return byType[normalizedType];
+
+  try {
+    const pathname = new URL(url).pathname;
+    const ext = path.extname(pathname).toLowerCase();
+    if (ext && ext.length <= 6) return ext;
+  } catch {
+    // Fall through to default.
+  }
+
+  return '.jpg';
+};
+
+const pickPhotos = ({ photos, filter, photoIds = [], threshold }) => {
+  if (filter === 'all') return photos;
+
+  if (filter === 'selected') {
+    const selected = new Set(Array.isArray(photoIds) ? photoIds.map(String) : []);
+    return photos.filter((photo) => selected.has(String(photo.id)));
+  }
+
+  if (filter === 'passed' || filter === 'flagged') {
+    return photos.filter((photo) => getPhotoConfidenceStatus(photo, threshold) === filter);
+  }
+
+  return null;
+};
+
+const getJobForUser = async (req, res) => {
+  const job = await findScrapeJobById(req.params.id);
+  if (!job) {
+    res.status(404).json(errBody('NOT_FOUND', 'Scrape job not found.'));
+    return null;
+  }
+
+  const isAdmin = req.user.accountType === 'admin';
+  if (!isAdmin && job.submittedBy !== req.user.id) {
+    res.status(403).json(errBody('FORBIDDEN', 'Access denied.'));
+    return null;
+  }
+
+  return job;
+};
+
+const fetchImageBuffer = async (photo) => {
+  const imageUrl = photo.originalImageUrl || photo.imageUrl;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const response = await fetch(imageUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'TwinsThroughTime/1.0 photo-download',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      contentType: response.headers.get('content-type'),
+      imageUrl,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+};
 
 const stopWorker = (jobId) => {
   const child = activeWorkers.get(jobId);
@@ -249,9 +353,148 @@ export const cancelScrapeJob = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
-// PATCH /scrape-jobs/:id  🔑 (worker only)
-// Python worker calls this to update job status (running / completed / failed).
+// POST /scrape-jobs/:id/photos/download  🔒
 // ---------------------------------------------------------------------------
+export const downloadScrapeJobPhotos = async (req, res) => {
+  const job = await getJobForUser(req, res);
+  if (!job) return;
+
+  const { filter = 'all', photoIds = [], threshold: rawThreshold } = req.body ?? {};
+  const threshold = normalizeConfidenceThreshold(rawThreshold);
+  const validFilters = ['all', 'passed', 'flagged', 'selected'];
+
+  if (!validFilters.includes(filter)) {
+    return res.status(400).json(
+      errBody('VALIDATION_ERROR', `filter must be one of: ${validFilters.join(', ')}.`)
+    );
+  }
+
+  if (filter === 'selected' && (!Array.isArray(photoIds) || photoIds.length === 0)) {
+    return res.status(400).json(
+      errBody('VALIDATION_ERROR', '`photoIds` is required when filter is selected.')
+    );
+  }
+
+  const photos = await findAllPhotosForScrapeJob({
+    scrapeJobId: job.id,
+    submittedBy: req.user.accountType === 'admin' ? undefined : req.user.id,
+  });
+  const selectedPhotos = pickPhotos({ photos, filter, photoIds, threshold });
+
+  if (!selectedPhotos) {
+    return res.status(400).json(
+      errBody('VALIDATION_ERROR', `filter must be one of: ${validFilters.join(', ')}.`)
+    );
+  }
+
+  if (selectedPhotos.length === 0) {
+    return res.status(422).json(
+      errBody('UNPROCESSABLE', 'No photos matched this download request.')
+    );
+  }
+
+  const entries = [];
+  const skipped = [];
+
+  for (let index = 0; index < selectedPhotos.length; index += 1) {
+    const photo = selectedPhotos[index];
+
+    try {
+      const { buffer, contentType, imageUrl } = await fetchImageBuffer(photo);
+      const ext = extensionFrom(imageUrl, contentType);
+      const namePart = sanitizeFilePart(photo.name, `photo-${index + 1}`);
+      const idPart = String(photo.id).slice(0, 8);
+
+      entries.push({
+        name: `${String(index + 1).padStart(3, '0')}-${namePart}-${idPart}${ext}`,
+        data: buffer,
+      });
+    } catch (error) {
+      skipped.push({
+        id: photo.id,
+        imageUrl: photo.originalImageUrl || photo.imageUrl,
+        reason: error?.message || 'Unknown fetch error',
+      });
+    }
+  }
+
+  if (skipped.length > 0) {
+    const lines = skipped.map(
+      (item) => `${item.id}\t${item.imageUrl}\t${item.reason}`
+    );
+    entries.push({
+      name: 'skipped-images.txt',
+      data: Buffer.from(['photoId\timageUrl\treason', ...lines].join('\n'), 'utf8'),
+    });
+  }
+
+  if (entries.length === 0) {
+    entries.push({
+      name: 'skipped-images.txt',
+      data: Buffer.from('All requested images failed to download from their source URLs.', 'utf8'),
+    });
+  }
+
+  const zipBuffer = createZip(entries);
+  const filename = `scrape-job-${job.id}-${filter}-photos.zip`;
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Length', zipBuffer.length);
+  return res.status(200).send(zipBuffer);
+};
+
+// ---------------------------------------------------------------------------
+// DELETE /scrape-jobs/:id/photos  🔒
+// ---------------------------------------------------------------------------
+export const deleteScrapeJobPhotos = async (req, res) => {
+  const job = await getJobForUser(req, res);
+  if (!job) return;
+
+  const { filter, photoIds = [], threshold: rawThreshold } = req.body ?? {};
+  const threshold = normalizeConfidenceThreshold(rawThreshold);
+  const validFilters = ['passed', 'flagged', 'selected'];
+
+  if (!validFilters.includes(filter)) {
+    return res.status(400).json(
+      errBody('VALIDATION_ERROR', `filter must be one of: ${validFilters.join(', ')}.`)
+    );
+  }
+
+  if (filter === 'selected' && (!Array.isArray(photoIds) || photoIds.length === 0)) {
+    return res.status(400).json(
+      errBody('VALIDATION_ERROR', '`photoIds` is required when filter is selected.')
+    );
+  }
+
+  const photos = await findAllPhotosForScrapeJob({
+    scrapeJobId: job.id,
+    submittedBy: req.user.accountType === 'admin' ? undefined : req.user.id,
+  });
+  const selectedPhotos = pickPhotos({ photos, filter, photoIds, threshold });
+
+  if (!selectedPhotos) {
+    return res.status(400).json(
+      errBody('VALIDATION_ERROR', `filter must be one of: ${validFilters.join(', ')}.`)
+    );
+  }
+
+  const selectedIds = selectedPhotos.map((photo) => photo.id);
+  const deletedIds = await deletePhotosByIdsForScrapeJob({
+    scrapeJobId: job.id,
+    photoIds: selectedIds,
+  });
+
+  await updateScrapeJob(job.id, {
+    photoCount: Math.max(0, (job.photoCount ?? photos.length) - deletedIds.length),
+  });
+
+  return res.status(200).json({
+    deletedCount: deletedIds.length,
+    deletedIds,
+  });
+};
+
 export const updateJobStatus = async (req, res) => {
   const job = await findScrapeJobById(req.params.id);
   if (!job) {
@@ -309,6 +552,7 @@ export const ingestPhoto = async (req, res) => {
     photoNotes    = null,
     tags          = [],
     license       = null,
+    metadata,
   } = req.body ?? {};
 
   if (!imageUrl) {
@@ -330,6 +574,7 @@ export const ingestPhoto = async (req, res) => {
     tags:           Array.isArray(tags) ? tags : [],
     license,
     isAutoExtracted: true,
+    metadata,
   });
 
   // Increment the job's photo count so the frontend can show live progress.
@@ -337,3 +582,4 @@ export const ingestPhoto = async (req, res) => {
 
   return res.status(201).json(photo);
 };
+

@@ -1031,6 +1031,7 @@ def save_generic_record(
             "photoNotes":  json.dumps(metadata, ensure_ascii=False),
             "tags":        tags,
             "license":     metadata.get("License") or None,
+            "metadata":    metadata,
         }
         ok = api_client.post_photo(photo_payload)
         if ok:

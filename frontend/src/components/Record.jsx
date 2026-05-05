@@ -1,6 +1,8 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
 
+import ConfidenceBadge from "./ConfidenceBadge";
+
 export default function Record({
     imageSrc,
     imageAlt = "Historical photo",
@@ -9,6 +11,10 @@ export default function Record({
     date,
     location,
     traits = [],
+    confidenceScore,
+    selected = false,
+    onSelectChange,
+    actionSlot,
     onClick,
   }) {
     const [imageFailed, setImageFailed] = useState(false);
@@ -22,6 +28,20 @@ export default function Record({
         tabIndex={onClick ? 0 : undefined}
       >
         <div className="flex gap-4 p-4">
+          {onSelectChange ? (
+            <label
+              className="mt-1 flex h-5 w-5 flex-none items-center justify-center"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={(event) => onSelectChange(event.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-gray-900"
+              />
+            </label>
+          ) : null}
+
           {/* Image */}
           <div className="h-28 w-28 flex-none overflow-hidden rounded-xl bg-gray-100">
             {canShowImage ? (
@@ -59,9 +79,22 @@ export default function Record({
                 )}
               </div>
   
-              <span className="rounded-full border bg-gray-50 px-2 py-1 text-xs text-gray-600">
-                Record
-              </span>
+              <div className="flex shrink-0 flex-col items-end gap-1.5">
+                {confidenceScore !== undefined ? (
+                  <ConfidenceBadge score={confidenceScore} size="sm" />
+                ) : null}
+                <span className="rounded-full border bg-gray-50 px-2 py-1 text-xs text-gray-600">
+                  Record
+                </span>
+                {actionSlot ? (
+                  <div
+                    className="flex flex-wrap justify-end gap-1.5"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {actionSlot}
+                  </div>
+                ) : null}
+              </div>
             </div>
   
             {/* Tags / Traits */}
@@ -99,6 +132,10 @@ Record.propTypes = {
   subtitle: PropTypes.string,
   date: PropTypes.string,
   location: PropTypes.string,
+  confidenceScore: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  selected: PropTypes.bool,
+  onSelectChange: PropTypes.func,
+  actionSlot: PropTypes.node,
   traits: PropTypes.arrayOf(
     PropTypes.oneOfType([
       PropTypes.string,

@@ -602,6 +602,7 @@ def save_record_folder(
                 "photoNotes":  json.dumps(photo_metadata, ensure_ascii=False),
                 "tags":        tags,
                 "license":     metadata.get("License") or None,
+                "metadata":    metadata,
             }
             ok = api_client.post_photo(photo_payload)
             if ok:
