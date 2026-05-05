@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 
+import ConfidenceBadge from "./ConfidenceBadge";
+import {
+  CONFIDENCE_THRESHOLD,
+  formatConfidencePercent,
+  getConfidenceStatus,
+  readConfidence,
+} from "../utils/confidenceUtils";
+
 const FIXED_FIELDS = [
   { key: "First Name", type: "text" },
   { key: "Middle Name or Initial", type: "text" },
@@ -82,7 +90,6 @@ export default function MetadataReviewPopup({
   isOpen,
   onClose,
   onSave,
-  onOnboardingSubmit,
 }) {
   const initialData = useMemo(
     () => images.map((img, idx) => buildInitialAnnotation(img, idx)),
@@ -142,7 +149,7 @@ export default function MetadataReviewPopup({
     );
   }
 
-  const jsonPreview = JSON.stringify(annotations, null, 2);
+  const jsonPreview = JSON.stringify(current.metadata, null, 2);
   const progress = `${currentIndex + 1} / ${annotations.length}`;
 
   const updateField = (field, value) => {
@@ -273,6 +280,8 @@ export default function MetadataReviewPopup({
   };
 
   const otherEntries = Object.entries(current.metadata.Other || {});
+  const currentScore = readConfidence(current.metadata);
+  const currentStatus = getConfidenceStatus(currentScore);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -302,6 +311,40 @@ export default function MetadataReviewPopup({
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-5">
+            <div
+              className={`mb-4 flex items-start gap-3 rounded-xl border px-4 py-3 ${
+                currentStatus === "flagged"
+                  ? "border-red-200 bg-red-50"
+                  : currentStatus === "passed"
+                  ? "border-emerald-200 bg-emerald-50"
+                  : "border-gray-200 bg-gray-50"
+              }`}
+            >
+              <ConfidenceBadge score={currentScore} size="md" />
+              <div className="text-xs leading-relaxed text-gray-700">
+                {currentStatus === "flagged" ? (
+                  <span>
+                    AI confidence is{" "}
+                    <strong>{formatConfidencePercent(currentScore)}</strong>, below the{" "}
+                    {Math.round(CONFIDENCE_THRESHOLD * 100)}% threshold. This photo is
+                    flagged — please verify and correct the metadata before saving.
+                  </span>
+                ) : currentStatus === "passed" ? (
+                  <span>
+                    AI confidence is{" "}
+                    <strong>{formatConfidencePercent(currentScore)}</strong>. This photo
+                    passed the {Math.round(CONFIDENCE_THRESHOLD * 100)}% threshold; you can
+                    still adjust any field below.
+                  </span>
+                ) : (
+                  <span>
+                    AI confidence is unavailable for this record. Review the metadata
+                    manually before saving.
+                  </span>
+                )}
+              </div>
+            </div>
+
             <div className="grid gap-4">
               {FIXED_FIELDS.map((field) => (
                 <div key={field.key}>
@@ -317,13 +360,21 @@ export default function MetadataReviewPopup({
                       className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
                     />
                   ) : (
-                    <input
-                      type={field.type}
-                      step={field.step}
-                      value={current.metadata[field.key] ?? ""}
-                      onChange={(e) => updateField(field.key, e.target.value)}
-                      className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
-                    />
+                      <input
+                        type={field.type}
+                        step={field.step}
+                        value={current.metadata[field.key] ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const value =
+                            field.type === "number"
+                              ? (raw === "" ? "" : Number(raw))
+                              : raw;
+
+                          updateField(field.key, value);
+                        }}
+                        className="w-full rounded-lg border px-3 py-2 outline-none focus:ring"
+                      />
                   )}
                 </div>
               ))}
@@ -412,16 +463,6 @@ export default function MetadataReviewPopup({
               >
                 {isSaving ? "Saving..." : "Save metadata"}
               </button>
-
-              {currentIndex === annotations.length - 1 && onOnboardingSubmit ? (
-                <button
-                  type="button"
-                  onClick={onOnboardingSubmit}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
-                >
-                  Submit for onboarding →
-                </button>
-              ) : null}
             </div>
           </div>
         </div>
@@ -430,7 +471,7 @@ export default function MetadataReviewPopup({
           <div className="border-b border-white/10 px-4 py-3">
             <h3 className="text-sm font-semibold">JSON Preview</h3>
             <p className="mt-1 text-xs text-gray-400">
-              debug and demo purposes - LIVE
+              Current image metadata - live
             </p>
           </div>
 
@@ -460,5 +501,5 @@ MetadataReviewPopup.propTypes = {
   isOpen: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onSave: PropTypes.func,
-  onOnboardingSubmit: PropTypes.func,
 };
+

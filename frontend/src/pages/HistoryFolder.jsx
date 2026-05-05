@@ -1,17 +1,20 @@
 import { Link, useParams } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import DownloadDropdown from "../components/DownloadDropdown";
 import MetadataReviewPopup from "../components/MetadataPopup";
-import OnboardingSubmitModal from "../components/OnboardingSubmitModal";
 import Record from "../components/Record";
 import { apiRequest, getBackendSession } from "../utils/apiClient";
 import {
-  createOnboardingRequest,
-  getOnboardingRequests,
-  updateOnboardingRequest,
-  deleteOnboardingRequest,
-  submitOnboardingRequest,
-} from "../services/onboardingRequestService";
+  CONFIDENCE_THRESHOLD,
+  readConfidence,
+  getConfidenceStatus,
+} from "../utils/confidenceUtils";
+import { deriveMetadataForReview } from "../utils/photoMetadata";
+import {
+  deleteScrapePhotos,
+  downloadScrapePhotos,
+} from "../services/scrapePhotoService";
 
 function toReviewImage(photo) {
   return {
@@ -20,7 +23,7 @@ function toReviewImage(photo) {
     fileName: photo.imageUrl?.split("/").pop() || photo.id,
     name: photo.name || "",
     photoNotes: photo.photoNotes || "",
-    scrapedMetadata: photo.scrapedMetadata || photo.metadataJson || {},
+    scrapedMetadata: deriveMetadataForReview(photo),
   };
 }
 
@@ -56,13 +59,11 @@ export default function HistoryFolder() {
   const [isLoading, setIsLoading] = useState(true);
   const [reviewImages, setReviewImages] = useState([]);
   const [openReview, setOpenReview] = useState(false);
-  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-  const [onboardingSuccessBanner, setOnboardingSuccessBanner] = useState(false);
-  const [onboardingError, setOnboardingError] = useState("");
-  // Existing onboarding request for this job (null = none, object = found)
-  const [existingRequest, setExistingRequest] = useState(null);
-  // Whether the edit modal is open (re-uses OnboardingSubmitModal)
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState([]);
+  const [downloading, setDownloading] = useState("");
+  const [deleting, setDeleting] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -75,23 +76,14 @@ export default function HistoryFolder() {
       }
 
       try {
-        const [jobData, photosData, requestsData] = await Promise.all([
+        const [jobData, photosData] = await Promise.all([
           apiRequest(`/scrape-jobs/${jobId}`),
           apiRequest(`/photos?scrapeJobId=${encodeURIComponent(jobId)}&limit=100`),
-          getOnboardingRequests({ limit: 100 }).catch(() => null),
         ]);
 
         if (!cancelled) {
-          const fetchedPhotos = photosData?.data || [];
           setJob(jobData);
-          setPhotos(fetchedPhotos);
-
-          // Find an onboarding request whose photoIds overlap with this job's photos
-          const photoIdSet = new Set(fetchedPhotos.map((p) => p.id));
-          const match = (requestsData?.data || []).find((r) =>
-            r.photoIds?.some((pid) => photoIdSet.has(pid))
-          );
-          setExistingRequest(match ?? null);
+          setPhotos(photosData?.data || []);
         }
       } catch (error) {
         if (!cancelled) {
@@ -116,14 +108,99 @@ export default function HistoryFolder() {
     setOpenReview(true);
   }
 
+  function photoConfidenceStatus(photo) {
+    return getConfidenceStatus(readConfidence(deriveMetadataForReview(photo)));
+  }
+
+  const selectedSet = useMemo(() => new Set(selectedPhotoIds), [selectedPhotoIds]);
+  const flaggedPhotos = photos.filter((photo) => photoConfidenceStatus(photo) === "flagged");
+  const passedPhotos = photos.filter((photo) => photoConfidenceStatus(photo) === "passed");
+
+  function togglePhotoSelection(photoId, checked) {
+    setSelectedPhotoIds((current) =>
+      checked
+        ? Array.from(new Set([...current, photoId]))
+        : current.filter((id) => id !== photoId)
+    );
+  }
+
+  async function handleDownload(filter, ids = []) {
+    setActionMessage("");
+    setActionError("");
+    setDownloading(filter);
+
+    try {
+      await downloadScrapePhotos(jobId, filter, ids);
+      setActionMessage("Download started.");
+    } catch (error) {
+      setActionError(error?.message || "Unable to download photos.");
+    } finally {
+      setDownloading("");
+    }
+  }
+
+  async function handleDelete(filter, ids = []) {
+    setActionMessage("");
+    setActionError("");
+
+    const countByFilter = {
+      selected: ids.length,
+      flagged: flaggedPhotos.length,
+      passed: passedPhotos.length,
+    };
+    const count = countByFilter[filter] ?? 0;
+
+    if (count === 0) return;
+
+    const messages = {
+      selected: `Delete ${count} selected photo${count === 1 ? "" : "s"} from this scrape? This cannot be undone.`,
+      flagged: `Delete ${count} flagged photo${count === 1 ? "" : "s"} from this scrape? This cannot be undone.`,
+      passed: `Delete ${count} passed photo${count === 1 ? "" : "s"} from this scrape? This cannot be undone.`,
+    };
+
+    if (!window.confirm(messages[filter])) return;
+
+    setDeleting(filter);
+
+    try {
+      const result = await deleteScrapePhotos(jobId, filter, ids);
+      const deletedIds = new Set(result?.deletedIds || ids);
+
+      if (filter === "flagged") {
+        for (const photo of flaggedPhotos) deletedIds.add(photo.id);
+      }
+      if (filter === "passed") {
+        for (const photo of passedPhotos) deletedIds.add(photo.id);
+      }
+
+      setPhotos((current) => current.filter((photo) => !deletedIds.has(photo.id)));
+      setSelectedPhotoIds((current) => current.filter((id) => !deletedIds.has(id)));
+      setJob((current) =>
+        current
+          ? {
+              ...current,
+              photoCount: Math.max(0, (current.photoCount ?? photos.length) - (result?.deletedCount ?? deletedIds.size)),
+            }
+          : current
+      );
+      setActionMessage(`Deleted ${result?.deletedCount ?? deletedIds.size} photo${(result?.deletedCount ?? deletedIds.size) === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setActionError(error?.message || "Unable to delete photos.");
+    } finally {
+      setDeleting("");
+    }
+  }
+
   async function savePhotoMetadata(annotation) {
     const metadata = annotation.metadata || {};
     const updated = await apiRequest(`/photos/${annotation.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name: [metadata["First Name"], metadata["Middle Name or Initial"], metadata["Last Name"]]
-          .filter(Boolean)
-          .join(" ") || null,
+        metadata,
+        name:
+          [metadata["First Name"], metadata["Middle Name or Initial"], metadata["Last Name"]]
+            .filter(Boolean)
+            .join(" ") || null,
         age: metadata.Age || null,
         regiment: metadata["Military Unit"] || null,
         dateTaken: metadata["Year Born"] || null,
@@ -136,57 +213,6 @@ export default function HistoryFolder() {
     );
   }
 
-  async function openDirectOnboarding() {
-    setOnboardingError("");
-    setOnboardingSuccessBanner(false);
-
-    try {
-      // Mark every photo in this job as "reviewed" so the backend accepts them
-      await Promise.allSettled(
-        photos.map((photo) =>
-          apiRequest(`/photos/${photo.id}/status`, {
-            method: "PATCH",
-            body: JSON.stringify({ status: "reviewed" }),
-          })
-        )
-      );
-      setShowOnboardingModal(true);
-    } catch (err) {
-      setOnboardingError(err?.message || "Unable to prepare photos for submission.");
-    }
-  }
-
-  async function handleOnboardingSubmit(title, notes) {
-  const created = await createOnboardingRequest({
-    title,
-    notes,
-    photoIds: photos.map((p) => p.id),
-  });
-
-  const submitted = await submitOnboardingRequest(created.id);
-
-  setExistingRequest({
-    ...created,
-    status: submitted.status,
-  });
-  setShowOnboardingModal(false);
-  setOnboardingSuccessBanner(true);
-}
-
-  async function handleOnboardingEdit(title, notes) {
-    const updated = await updateOnboardingRequest(existingRequest.id, { title, notes });
-    setExistingRequest(updated);
-    setShowEditModal(false);
-    setOnboardingSuccessBanner(true);
-  }
-
-async function handleOnboardingDelete() {
-  await deleteOnboardingRequest(existingRequest.id);
-  setExistingRequest(null);
-  setShowEditModal(false);
-  setOnboardingSuccessBanner(false);
-}
-
   return (
     <div className="mx-auto max-w-5xl p-6">
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -197,83 +223,94 @@ async function handleOnboardingDelete() {
         <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-gray-900">{folderName(job)}</h1>
-            <p className="mt-2 break-all text-sm text-gray-500">{job?.url || "Loading scrape URL..."}</p>
+            <p className="mt-2 break-all text-sm text-gray-500">
+              {job?.url || "Loading scrape URL..."}
+            </p>
             <p className="mt-2 text-sm text-gray-600">
-              {job ? `${formatDate(job.createdAt)} | ${job.photoCount ?? 0} photos` : "Loading folder details..."}
+              {job
+                ? `${formatDate(job.createdAt)} | ${job.photoCount ?? 0} photos`
+                : "Loading folder details..."}
             </p>
           </div>
 
           {job ? (
-            <div className="flex flex-col items-end gap-2 shrink-0">
+            <div className="flex flex-col items-end gap-3">
               <span className="rounded-full border bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-700">
                 {job.status}
               </span>
-              {job.status === "completed" && photos.length > 0 ? (
-                existingRequest ? (
-                  /* ── Request already submitted ── */
-                  <div className="flex flex-col items-end gap-1.5">
-                    <span className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
-                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                      Onboarding request submitted
-                    </span>
-                    {existingRequest.status === "pending" ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowEditModal(true)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 transition"
-                      >
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z" />
-                        </svg>
-                        Edit request
-                      </button>
-                    ) : (
-                      <span className="rounded-full bg-indigo-100 px-3 py-0.5 text-xs font-semibold text-indigo-800 capitalize">
-                        {existingRequest.status.replace("_", " ")}
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  /* ── No request yet ── */
+
+              {photos.length > 0 ? (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className="text-xs font-semibold text-gray-600">
+                    {selectedPhotoIds.length} selected
+                  </span>
+                  <DownloadDropdown
+                    label="Download"
+                    busy={Boolean(downloading)}
+                    options={[
+                      {
+                        value: "all",
+                        label: "Download all photos",
+                        onClick: () => handleDownload("all"),
+                      },
+                      {
+                        value: "passed",
+                        label: "Download passed photos",
+                        onClick: () => handleDownload("passed"),
+                      },
+                      {
+                        value: "flagged",
+                        label: "Download flagged photos",
+                        onClick: () => handleDownload("flagged"),
+                      },
+                      {
+                        value: "selected",
+                        label: "Download selected photos",
+                        disabled: selectedPhotoIds.length === 0,
+                        onClick: () => handleDownload("selected", selectedPhotoIds),
+                      },
+                    ]}
+                  />
                   <button
                     type="button"
-                    onClick={openDirectOnboarding}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+                    disabled={flaggedPhotos.length === 0 || Boolean(deleting)}
+                    onClick={() => handleDelete("flagged")}
+                    className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    Create onboarding request
+                    {deleting === "flagged" ? "Deleting..." : "Auto-delete flagged photos"}
                   </button>
-                )
+                  <button
+                    type="button"
+                    disabled={passedPhotos.length === 0 || Boolean(deleting)}
+                    onClick={() => handleDelete("passed")}
+                    className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {deleting === "passed" ? "Deleting..." : "Delete passed photos"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedPhotoIds.length === 0 || Boolean(deleting)}
+                    onClick={() => handleDelete("selected", selectedPhotoIds)}
+                    className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-800 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {deleting === "selected" ? "Deleting..." : "Delete selected photos"}
+                  </button>
+                </div>
               ) : null}
             </div>
           ) : null}
         </div>
       </div>
 
-      {onboardingSuccessBanner ? (
-        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-green-200 bg-green-50 px-5 py-4">
-          <svg className="h-5 w-5 text-green-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-green-800">Onboarding request submitted!</p>
-            <p className="text-xs text-green-700">An admin will review your photos and metadata.</p>
-          </div>
-          <button type="button" onClick={() => setOnboardingSuccessBanner(false)} className="text-green-600 hover:text-green-800 transition">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+      {actionMessage ? (
+        <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 px-5 py-3 text-sm text-green-800">
+          {actionMessage}
         </div>
       ) : null}
 
-      {onboardingError ? (
+      {actionError ? (
         <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">
-          {onboardingError}
+          {actionError}
         </div>
       ) : null}
 
@@ -298,6 +335,43 @@ async function handleOnboardingDelete() {
         </div>
       ) : null}
 
+      {photos.length > 0
+        ? (() => {
+            const flaggedCount = photos.filter(
+              (p) =>
+                photoConfidenceStatus(p) === "flagged"
+            ).length;
+
+            if (flaggedCount === 0) return null;
+
+            return (
+              <div className="mt-6 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+                <svg
+                  className="h-5 w-5 shrink-0 text-amber-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+                  />
+                </svg>
+                <div>
+                  <p className="font-semibold">
+                    {flaggedCount} of {photos.length} photo{photos.length === 1 ? "" : "s"} flagged for manual review
+                  </p>
+                  <p className="mt-0.5 text-xs">
+                    AI confidence below {Math.round(CONFIDENCE_THRESHOLD * 100)}%. Open each flagged record and update its metadata.
+                  </p>
+                </div>
+              </div>
+            );
+          })()
+        : null}
+
       <div className="mt-6 grid gap-4">
         {photos.map((photo) => (
           <Record
@@ -309,6 +383,29 @@ async function handleOnboardingDelete() {
             date={photo.dateTaken || ""}
             location={photo.location || ""}
             traits={toTraits(photo)}
+            confidenceScore={readConfidence(deriveMetadataForReview(photo))}
+            selected={selectedSet.has(photo.id)}
+            onSelectChange={(checked) => togglePhotoSelection(photo.id, checked)}
+            actionSlot={
+              <>
+                <button
+                  type="button"
+                  disabled={Boolean(downloading)}
+                  onClick={() => handleDownload("selected", [photo.id])}
+                  className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-800 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Download
+                </button>
+                <button
+                  type="button"
+                  disabled={Boolean(deleting)}
+                  onClick={() => handleDelete("selected", [photo.id])}
+                  className="rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Delete
+                </button>
+              </>
+            }
             onClick={() => openPhotoReview(photo)}
           />
         ))}
@@ -322,25 +419,6 @@ async function handleOnboardingDelete() {
           setReviewImages([]);
         }}
         onSave={savePhotoMetadata}
-      />
-
-      <OnboardingSubmitModal
-        isOpen={showOnboardingModal}
-        photoCount={photos.length}
-        onSubmit={handleOnboardingSubmit}
-        onClose={() => setShowOnboardingModal(false)}
-      />
-
-      {/* Edit modal — pre-fills existing title/notes */}
-      <OnboardingSubmitModal
-        isOpen={showEditModal}
-        photoCount={photos.length}
-        initialTitle={existingRequest?.onboardingRequestTitle ?? ""}
-        initialNotes={existingRequest?.onboardingRequestNotes ?? ""}
-        submitLabel="Save changes"
-        onSubmit={handleOnboardingEdit}
-        onClose={() => setShowEditModal(false)}
-        onDelete={handleOnboardingDelete}
       />
     </div>
   );
