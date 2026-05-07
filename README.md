@@ -2,41 +2,138 @@
 
 A full-stack web application that allows users to find historical matches for their photos.
 
-## 📁 Project Structure
+## Project Structure
 
-```
-Twins-Through-Time/
-├── frontend/              # React + Vite frontend application
-│   ├── src/              # React source code
-│   │   ├── assets/       # Browser Images
-│   │   ├── components/   # React Components
-│   │   │   ├── Footer.jsx
-│   │   │   ├── HistoryHeader.jsx
-│   │   │   ├── Navbar.jsx
-│   │   │   └── Record.jsx
-│   │   └── pages/        # Web Pages (Routes)
-│   │       ├── History.jsx
-│   │       ├── Home.jsx
-│   │       ├── Profile.jsx
-│   │       └── Upload.jsx
-│   ├── public/           # Static assets
-│   ├── index.html
-│   ├── package.json
-│   └── vite.config.js
-├── backend/              # Node.js + Express backend API
-│   ├── src/
-│   │   ├── controllers/  # Request handlers
-│   │   ├── models/       # Database models
-│   │   ├── routes/       # API routes
-│   │   ├── middleware/   # Custom middleware
-│   │   ├── config/       # Configuration files
-│   │   ├── utils/        # Helper functions
-│   │   └── server.js     # Entry point
-│   ├── package.json
-│   └── .env
-├── docs/                 # Documentation
-├── package.json          # Root package.json for running both
-└── README.md            # This file
+```text
+Twins-Through-Time-main/
+|-- .github/                               # Repository automation
+|   `-- workflows/                         # GitHub Actions CI/deploy workflows
+|       |-- ci.yml
+|       `-- deploy-pages.yml
+|-- frontend/                              # React + Vite frontend application
+|   |-- public/                            # Static assets served by Vite
+|   |   |-- DemoPictures/                  # Demo images
+|   |   |   |-- Grenville-M.-Dodge.jpg
+|   |   |   |-- oldguy.jpg
+|   |   |   `-- youngkid.jpg
+|   |   |-- sleuth.jpeg
+|   |   |-- sleuth2.png
+|   |   `-- vite.svg
+|   |-- src/                               # React source code
+|   |   |-- assets/                        # Browser images and bundled assets
+|   |   |   `-- react.svg
+|   |   |-- components/                    # Reusable React components
+|   |   |   |-- AdminSectionNav.jsx
+|   |   |   |-- ConfidenceBadge.jsx
+|   |   |   |-- DownloadDropdown.jsx
+|   |   |   |-- ErrorLayout.jsx
+|   |   |   |-- Footer.jsx
+|   |   |   |-- HistoryHeader.jsx
+|   |   |   |-- MetadataPopup.jsx
+|   |   |   |-- Navbar.jsx
+|   |   |   `-- Record.jsx
+|   |   |-- hooks/                         # Reusable React hooks
+|   |   |   `-- useAuth.jsx
+|   |   |-- pages/                         # Web pages and route views
+|   |   |   |-- AdminDashboard.jsx
+|   |   |   |-- AdminUsers.jsx
+|   |   |   |-- AuthError.jsx
+|   |   |   |-- History.jsx
+|   |   |   |-- HistoryFolder.jsx
+|   |   |   |-- Home.jsx
+|   |   |   |-- Login.jsx
+|   |   |   |-- NotFound.jsx
+|   |   |   |-- Profile.jsx
+|   |   |   |-- Register.jsx
+|   |   |   |-- ServerError.jsx
+|   |   |   |-- Signup.jsx
+|   |   |   `-- Upload.jsx
+|   |   |-- services/                      # Frontend API/service wrappers
+|   |   |   |-- accountService.js
+|   |   |   |-- api.js
+|   |   |   |-- authService.js
+|   |   |   |-- photoService.js
+|   |   |   |-- scrapeJobService.js
+|   |   |   `-- scrapePhotoService.js
+|   |   |-- utils/                         # Frontend helper utilities
+|   |   |   |-- apiClient.js
+|   |   |   |-- authSession.js
+|   |   |   |-- confidenceUtils.js
+|   |   |   `-- photoMetadata.js
+|   |   |-- App.jsx                        # App shell and frontend routes
+|   |   |-- main.jsx                       # React entry point
+|   |   |-- supabaseClient.js              # Supabase client setup
+|   |   |-- App.css
+|   |   `-- index.css
+|   |-- index.html                         # Vite HTML entry
+|   |-- package.json                       # Frontend scripts and dependencies
+|   |-- vite.config.js                     # Vite configuration
+|   |-- tailwind.config.js                 # Tailwind configuration
+|   |-- postcss.config.js                  # PostCSS configuration
+|   `-- eslint.config.js                   # ESLint configuration
+|-- backend/                               # Node.js + Express backend API
+|   |-- src/                               # Express API source code
+|   |   |-- config/                        # Configuration files
+|   |   |   `-- supabase.js
+|   |   |-- controllers/                   # Request handlers
+|   |   |   |-- accountChangeRequestController.js
+|   |   |   |-- accountController.js
+|   |   |   |-- adminController.js
+|   |   |   |-- authController.js
+|   |   |   |-- photoController.js
+|   |   |   `-- scrapeJobController.js
+|   |   |-- middleware/                    # Custom Express middleware
+|   |   |   |-- authenticate.js
+|   |   |   |-- authenticateWorker.js
+|   |   |   |-- authorize.js
+|   |   |   `-- validateUser.js
+|   |   |-- models/                        # Database models
+|   |   |   |-- accountChangeRequestModel.js
+|   |   |   |-- authModel.js
+|   |   |   |-- photoModel.js
+|   |   |   |-- scrapeJobModel.js
+|   |   |   `-- userModel.js
+|   |   |-- routes/                        # API route definitions
+|   |   |   |-- accountChangeRequestRoutes.js
+|   |   |   |-- accountRoutes.js
+|   |   |   |-- adminRoutes.js
+|   |   |   |-- authRoutes.js
+|   |   |   |-- photoRoutes.js
+|   |   |   |-- scrapeJobRoutes.js
+|   |   |   `-- userRoutes.js
+|   |   |-- utils/                         # Backend helper utilities
+|   |   |   |-- confidence.js
+|   |   |   |-- scrapeProcessor.js
+|   |   |   |-- validators.js
+|   |   |   `-- zip.js
+|   |   |-- index.js                       # API app/bootstrap wiring
+|   |   `-- server.js                      # Server entry point
+|   |-- docs/                              # Backend database/schema docs
+|   |   `-- schema.sql
+|   |-- test-*.mjs                         # Backend API/model test scripts
+|   |-- package.json                       # Backend scripts and dependencies
+|   `-- README.md                          # Backend-specific setup notes
+|-- docs/                                  # Project documentation
+|   |-- apis.md
+|   |-- photo_schema.json
+|   |-- render-deploy.md
+|   `-- uml_diagram.md
+|-- llm/                                   # LLM matching utilities
+|   |-- .env.example
+|   |-- llm.py
+|   |-- requirements-local-fallback.txt
+|   `-- requirements.txt
+|-- scraping/                              # Historical image scraping tools
+|   |-- contentdm_scraper.py
+|   |-- robots_checker.py
+|   |-- scraper.py
+|   `-- scraping_js.py
+|-- scripts/                               # Maintenance scripts
+|   `-- generate-structure.js              # Regenerates this README section
+|-- package.json                           # Root npm scripts for the full-stack workflow
+|-- render.yaml                            # Render deployment configuration
+|-- QUICKSTART.md                          # Quick setup guide
+`-- README.md                              # Project overview
 ```
 
 ## 🚀 Getting Started
