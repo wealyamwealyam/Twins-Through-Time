@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 
 import DownloadDropdown from "../components/DownloadDropdown";
@@ -53,6 +53,7 @@ function formatDate(iso) {
 
 export default function HistoryFolder() {
   const { jobId } = useParams();
+  const navigate = useNavigate();
   const [job, setJob] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [message, setMessage] = useState("");
@@ -185,11 +186,24 @@ export default function HistoryFolder() {
 
       setPhotos((current) => current.filter((photo) => !deletedIds.has(photo.id)));
       setSelectedPhotoIds((current) => current.filter((id) => !deletedIds.has(id)));
+      setOpenReview(false);
+
+      if (result?.scrapeJobDeleted || result?.remainingPhotoCount === 0) {
+        navigate("/history", { replace: true });
+        return;
+      }
+
       setJob((current) =>
         current
           ? {
               ...current,
-              photoCount: Math.max(0, (current.photoCount ?? photos.length) - (result?.deletedCount ?? deletedIds.size)),
+              photoCount:
+                result?.remainingPhotoCount ??
+                Math.max(
+                  0,
+                  (current.photoCount ?? photos.length) -
+                    (result?.deletedCount ?? deletedIds.size)
+                ),
             }
           : current
       );

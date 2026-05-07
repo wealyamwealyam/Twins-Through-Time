@@ -67,6 +67,19 @@ export const createScrapeJob = async ({ url, maxPhotos = 3, submittedBy }) => {
   return fromDb(data);
 };
 
+export const deleteScrapeJobById = async (id) => {
+  const { data, error } = await supabase
+    .from('scrape_jobs')
+    .delete()
+    .eq('id', id)
+    .select('id')
+    .maybeSingle();
+
+  if (error) throw error;
+  if (data?.id) jobErrorMessages.delete(data.id);
+  return Boolean(data?.id);
+};
+
 export const findScrapeJobById = async (id) => {
   const { data, error } = await supabase
     .from('scrape_jobs')
