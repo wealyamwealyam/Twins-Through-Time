@@ -21,6 +21,10 @@ function folderName(job) {
   }
 }
 
+function hasPhotos(job) {
+  return Number(job?.photoCount ?? 0) > 0;
+}
+
 export default function History() {
   const [jobs, setJobs] = useState([]);
   const [query, setQuery] = useState("");
@@ -38,9 +42,9 @@ export default function History() {
       }
 
       try {
-        const result = await apiRequest("/scrape-jobs?limit=100");
+        const result = await apiRequest("/scrape-jobs?limit=100&withPhotos=true");
         if (!cancelled) {
-          setJobs(result?.data || []);
+          setJobs((result?.data || []).filter(hasPhotos));
         }
       } catch (error) {
         if (!cancelled) {
@@ -62,9 +66,11 @@ export default function History() {
 
   const visibleJobs = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return jobs;
+    const jobsWithPhotos = jobs.filter(hasPhotos);
 
-    return jobs.filter((job) =>
+    if (!needle) return jobsWithPhotos;
+
+    return jobsWithPhotos.filter((job) =>
       [job.url, job.status, folderName(job)]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle))

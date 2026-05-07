@@ -19,11 +19,13 @@ import { fileURLToPath } from 'url';
 import { validateScrapeUrl } from '../utils/validators.js';
 import {
   createScrapeJob,
+  deleteScrapeJobById,
   findScrapeJobById,
   findScrapeJobs,
   updateScrapeJob,
 } from '../models/scrapeJobModel.js';
 import {
+  countPhotosForScrapeJob,
   createPhoto,
   deletePhotosByIdsForScrapeJob,
   findAllPhotosForScrapeJob,
@@ -37,6 +39,8 @@ import { createZip } from '../utils/zip.js';
 const errBody = (code, message, details = null) => ({ error: { code, message, details } });
 
 const VALID_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'];
+const ACTIVE_JOB_STATUSES = ['queued', 'running'];
+const EMPTY_JOB_DELETABLE_STATUSES = ['completed', 'failed', 'cancelled'];
 const DEFAULT_MAX_PHOTOS = Math.max(1, Number(process.env.DEFAULT_MAX_PHOTOS) || 3);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const activeWorkers = new Map();
@@ -106,6 +110,66 @@ const getJobForUser = async (req, res) => {
   }
 
   return job;
+};
+
+const isActiveJob = (job) => ACTIVE_JOB_STATUSES.includes(job?.status);
+const canDeleteEmptyJob = (job) => EMPTY_JOB_DELETABLE_STATUSES.includes(job?.status);
+
+export const deleteScrapeJobIfEmpty = async (job) => {
+  if (!job?.id) {
+    return { deleted: false, deletedJobId: null, remainingPhotoCount: 0 };
+  }
+
+  const remainingPhotoCount = await countPhotosForScrapeJob({
+    scrapeJobId: job.id,
+  });
+
+  if (remainingPhotoCount > 0) {
+    if (job.photoCount !== remainingPhotoCount) {
+      await updateScrapeJob(job.id, { photoCount: remainingPhotoCount });
+    }
+
+    return { deleted: false, deletedJobId: null, remainingPhotoCount };
+  }
+
+  if (!canDeleteEmptyJob(job)) {
+    if ((job.photoCount ?? 0) !== 0) {
+      await updateScrapeJob(job.id, { photoCount: 0 });
+    }
+
+    return { deleted: false, deletedJobId: null, remainingPhotoCount: 0 };
+  }
+
+  const deleted = await deleteScrapeJobById(job.id);
+  return {
+    deleted,
+    deletedJobId: deleted ? job.id : null,
+    remainingPhotoCount: 0,
+  };
+};
+
+const shouldRequirePhotos = (value) =>
+  ['1', 'true', 'yes'].includes(String(value || '').toLowerCase());
+
+const cleanListedScrapeJobs = async (jobs, { requirePhotos = false } = {}) => {
+  const cleaned = await Promise.all(
+    jobs.map(async (job) => {
+      if (!requirePhotos && isActiveJob(job)) {
+        return job;
+      }
+
+      const cleanup = await deleteScrapeJobIfEmpty(job);
+      if (cleanup.deleted) return null;
+      if (requirePhotos && cleanup.remainingPhotoCount === 0) return null;
+
+      return {
+        ...job,
+        photoCount: cleanup.remainingPhotoCount,
+      };
+    })
+  );
+
+  return cleaned.filter(Boolean);
 };
 
 const fetchImageBuffer = async (photo) => {
@@ -283,7 +347,7 @@ export const submitScrapeJob = async (req, res) => {
 // Users see only their own jobs; admins see all.
 // ---------------------------------------------------------------------------
 export const listScrapeJobs = async (req, res) => {
-  const { status, page, limit } = req.query;
+  const { status, page, limit, withPhotos } = req.query;
   const isAdmin = req.user.accountType === 'admin';
 
   if (status && !VALID_STATUSES.includes(status)) {
@@ -299,7 +363,15 @@ export const listScrapeJobs = async (req, res) => {
     limit,
   });
 
-  return res.status(200).json(result);
+  const data = await cleanListedScrapeJobs(result.data, {
+    requirePhotos: shouldRequirePhotos(withPhotos),
+  });
+
+  return res.status(200).json({
+    ...result,
+    data,
+    total: data.length,
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -485,13 +557,14 @@ export const deleteScrapeJobPhotos = async (req, res) => {
     photoIds: selectedIds,
   });
 
-  await updateScrapeJob(job.id, {
-    photoCount: Math.max(0, (job.photoCount ?? photos.length) - deletedIds.length),
-  });
+  const cleanup = await deleteScrapeJobIfEmpty(job);
 
   return res.status(200).json({
     deletedCount: deletedIds.length,
     deletedIds,
+    remainingPhotoCount: cleanup.remainingPhotoCount,
+    scrapeJobDeleted: cleanup.deleted,
+    deletedScrapeJobId: cleanup.deletedJobId,
   });
 };
 
