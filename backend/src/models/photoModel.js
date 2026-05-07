@@ -232,6 +232,20 @@ export const findAllPhotosForScrapeJob = async ({ scrapeJobId, submittedBy } = {
   return rows.map(fromDb);
 };
 
+export const countPhotosForScrapeJob = async ({ scrapeJobId, submittedBy } = {}) => {
+  let query = supabase
+    .from('photos')
+    .select('*', { count: 'exact', head: true })
+    .eq('scrape_job_id', scrapeJobId);
+
+  if (submittedBy !== undefined) query = query.eq('submitted_by', submittedBy);
+
+  const { count, error } = await query;
+  if (error) throw error;
+
+  return count ?? 0;
+};
+
 export const deletePhotosByIdsForScrapeJob = async ({ scrapeJobId, photoIds }) => {
   if (!Array.isArray(photoIds) || photoIds.length === 0) {
     return [];

@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 
 import DownloadDropdown from "../components/DownloadDropdown";
@@ -53,12 +53,15 @@ function formatDate(iso) {
 
 export default function HistoryFolder() {
   const { jobId } = useParams();
+  const navigate = useNavigate();
   const [job, setJob] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [reviewImages, setReviewImages] = useState([]);
   const [openReview, setOpenReview] = useState(false);
+  const [reviewInitialIndex, setReviewInitialIndex] = useState(0);
+  const [reviewInitialPhotoId, setReviewInitialPhotoId] = useState(null);
+  const [reviewSession, setReviewSession] = useState(0);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState([]);
   const [downloading, setDownloading] = useState("");
   const [deleting, setDeleting] = useState("");
@@ -103,8 +106,16 @@ export default function HistoryFolder() {
     };
   }, [jobId]);
 
-  function openPhotoReview(photo) {
-    setReviewImages([toReviewImage(photo)]);
+  const displayedPhotos = photos;
+  const reviewImages = useMemo(
+    () => displayedPhotos.map((photo) => toReviewImage(photo)),
+    [displayedPhotos]
+  );
+
+  function openPhotoReview(photoId, photoIndex) {
+    setReviewInitialPhotoId(photoId);
+    setReviewInitialIndex(photoIndex);
+    setReviewSession((current) => current + 1);
     setOpenReview(true);
   }
 
@@ -175,11 +186,24 @@ export default function HistoryFolder() {
 
       setPhotos((current) => current.filter((photo) => !deletedIds.has(photo.id)));
       setSelectedPhotoIds((current) => current.filter((id) => !deletedIds.has(id)));
+      setOpenReview(false);
+
+      if (result?.scrapeJobDeleted || result?.remainingPhotoCount === 0) {
+        navigate("/history", { replace: true });
+        return;
+      }
+
       setJob((current) =>
         current
           ? {
               ...current,
-              photoCount: Math.max(0, (current.photoCount ?? photos.length) - (result?.deletedCount ?? deletedIds.size)),
+              photoCount:
+                result?.remainingPhotoCount ??
+                Math.max(
+                  0,
+                  (current.photoCount ?? photos.length) -
+                    (result?.deletedCount ?? deletedIds.size)
+                ),
             }
           : current
       );
@@ -373,7 +397,7 @@ export default function HistoryFolder() {
         : null}
 
       <div className="mt-6 grid gap-4">
-        {photos.map((photo) => (
+        {displayedPhotos.map((photo, index) => (
           <Record
             key={photo.id}
             imageSrc={photo.imageUrl}
@@ -406,17 +430,21 @@ export default function HistoryFolder() {
                 </button>
               </>
             }
-            onClick={() => openPhotoReview(photo)}
+            onClick={() => openPhotoReview(photo.id, index)}
           />
         ))}
       </div>
 
       <MetadataReviewPopup
+        key={reviewSession}
         images={reviewImages}
+        initialIndex={reviewInitialIndex}
+        initialImageId={reviewInitialPhotoId}
         isOpen={openReview}
         onClose={() => {
           setOpenReview(false);
-          setReviewImages([]);
+          setReviewInitialIndex(0);
+          setReviewInitialPhotoId(null);
         }}
         onSave={savePhotoMetadata}
       />

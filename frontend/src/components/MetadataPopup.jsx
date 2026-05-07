@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 
 import ConfidenceBadge from "./ConfidenceBadge";
@@ -85,8 +85,33 @@ function buildInitialAnnotation(image, index) {
   };
 }
 
+function clampIndex(index, length) {
+  if (length <= 0) return 0;
+
+  const safeIndex = Number.isFinite(index) ? index : 0;
+  return Math.min(Math.max(safeIndex, 0), length - 1);
+}
+
+function idsMatch(left, right) {
+  if (left === null || left === undefined || right === null || right === undefined) {
+    return false;
+  }
+
+  return String(left) === String(right);
+}
+
+function resolveInitialIndex(annotations, initialIndex, initialImageId) {
+  const idIndex = annotations.findIndex((item) =>
+    idsMatch(item.id, initialImageId)
+  );
+
+  return idIndex >= 0 ? idIndex : clampIndex(initialIndex, annotations.length);
+}
+
 export default function MetadataReviewPopup({
   images = [],
+  initialIndex = 0,
+  initialImageId = null,
   isOpen,
   onClose,
   onSave,
@@ -96,16 +121,54 @@ export default function MetadataReviewPopup({
     [images]
   );
 
-  const [annotations, setAnnotations] = useState(initialData);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [annotations, setAnnotations] = useState(() => initialData);
+  const [currentIndex, setCurrentIndex] = useState(() =>
+    resolveInitialIndex(initialData, initialIndex, initialImageId)
+  );
   const [saveMessage, setSaveMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const current = annotations[currentIndex];
+  const currentIdRef = useRef(null);
 
   useEffect(() => {
-    setAnnotations(initialData);
-    setCurrentIndex(0);
-    setSaveMessage("");
-  }, [initialData, isOpen]);
+    currentIdRef.current = current?.id ?? null;
+  }, [current?.id]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (initialData.length === 0) {
+      onClose();
+      return;
+    }
+
+    const activeId = currentIdRef.current;
+
+    setAnnotations((previous) => {
+      const previousById = new Map(previous.map((item) => [String(item.id), item]));
+
+      return initialData.map((incoming) => {
+        const previousItem = previousById.get(String(incoming.id));
+
+        return previousItem
+          ? {
+              ...incoming,
+              metadata: previousItem.metadata,
+            }
+          : incoming;
+      });
+    });
+
+    setCurrentIndex((previous) => {
+      const activeIndex = initialData.findIndex((item) =>
+        idsMatch(item.id, activeId)
+      );
+
+      return activeIndex >= 0
+        ? activeIndex
+        : clampIndex(previous, initialData.length);
+    });
+  }, [initialData, isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -127,8 +190,6 @@ export default function MetadataReviewPopup({
       </div>
     );
   }
-
-  const current = annotations[currentIndex];
 
   if (!current) {
     return (
@@ -256,9 +317,17 @@ export default function MetadataReviewPopup({
     );
   };
 
-  const goPrev = () => setCurrentIndex((prev) => Math.max(prev - 1, 0));
-  const goNext = () =>
-    setCurrentIndex((prev) => Math.min(prev + 1, annotations.length - 1));
+  const goPrev = () => {
+    setSaveMessage("");
+    setCurrentIndex((prev) => (prev > 0 ? prev - 1 : prev));
+  };
+
+  const goNext = () => {
+    setSaveMessage("");
+    setCurrentIndex((prev) =>
+      prev < annotations.length - 1 ? prev + 1 : prev
+    );
+  };
 
   const saveCurrent = async () => {
     if (!onSave) {
@@ -489,7 +558,7 @@ export default function MetadataReviewPopup({
 MetadataReviewPopup.propTypes = {
   images: PropTypes.arrayOf(
     PropTypes.shape({
-      id: PropTypes.string,
+      id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
       src: PropTypes.string,
       fileName: PropTypes.string,
       scrapedMetadata: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
@@ -498,6 +567,8 @@ MetadataReviewPopup.propTypes = {
       finalMetadata: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
     })
   ),
+  initialIndex: PropTypes.number,
+  initialImageId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   isOpen: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onSave: PropTypes.func,

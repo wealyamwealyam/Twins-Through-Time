@@ -13,7 +13,8 @@
     "@supabase/supabase-js": "^2.101.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.13.1"
+    "react-router-dom": "^7.13.1",
+    "twins-through-time": "file:.."
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
